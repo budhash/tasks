@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+
+# selfupdate scratch
+*.selfupdate.tmp
+
+# This repo's own dev-scratch task file (created by tests / manual runs).
+# In YOUR project you SHOULD commit TASKS.md — this ignore is anchored to the
+# repo root and only applies here, so examples/TASKS.md is still tracked.
+/TASKS.md

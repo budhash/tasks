@@ -1,0 +1,31 @@
+# Changelog
+
+All notable changes to `tasks`. Format loosely follows
+[Keep a Changelog](https://keepachangelog.com/); this project uses
+[semantic versioning](https://semver.org/).
+
+## [1.0.0] — 2026-06-21
+
+Initial release.
+
+### Features
+- Single-file, zero-dependency task tracker for a plain-text `TASKS.md`
+  (Python 3.8+, standard library only).
+- Hierarchy-aware features and tasks with stable immutable IDs
+  (`F-0001` / `T-0007`), priority, status, dependencies, effort, and notes.
+- Workflow commands: `new`, `start`, `done`, `skip`, `defer`, `reopen`,
+  `mv`, `link`, `set`, `next`, `tree`, `list`, `show`, `current`, `backlog`,
+  `now`, `nextid`.
+- Single active-task enforcement, checkbox↔status sync, and CI-friendly
+  `validate` (non-zero exit on any schema violation).
+- GitHub issue `sync` (`@issue` / `@pr` ↔ issue state).
+- `version` and `selfupdate` — keep a vendored copy current from the canonical
+  source (atomic in-place update; `--check` / `--source` supported). Hardened:
+  HTTPS-only, non-default sources gated behind `--allow-untrusted-source`,
+  fetched payload validated (compiles + looks like `tasks.py`) before replacing
+  the script, symlink-safe write.
+- `--prio` and `--priority` accepted interchangeably on `new`/`list`.
+- PostToolUse `tasks-md-guard.sh` hook to nudge edits through the CLI.
+- 155-scenario end-to-end test suite; CI across Python 3.8–3.12.
+- Docs: install + task-lifecycle walkthrough, a populated `examples/TASKS.md`,
+  and `CONTRIBUTING.md`. Consistent `./tools/tasks.py` invocation throughout.
