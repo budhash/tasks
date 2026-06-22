@@ -4,6 +4,15 @@ All notable changes to `tasks`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [1.0.1] — 2026-06-21
+
+### Fixed
+- `skip` (and other moves into `## Skipped`) crashed with `TypeError: NoneType
+  + int` when the target standard section didn't already exist in `TASKS.md`
+  (e.g. a project that never skipped a task, so it had no `## Skipped`). Missing
+  standard sections (`Now`/`Backlog`/`Skipped`) are now auto-created in
+  canonical order — consistent with shadow-feature auto-creation. (#1)
+
 ## [1.0.0] — 2026-06-21
 
 Initial release.

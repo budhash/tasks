@@ -143,7 +143,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Iterator
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # Canonical source for `selfupdate` — the published raw URL. `selfupdate`
 # overwrites this very script with the fetched content, so a NON-default source
@@ -404,6 +404,36 @@ def find_section_insert_pos(lines: List[str], section: str) -> int:
     while pos < end and lines[pos].strip() == "":
         pos += 1
     return pos
+
+
+def ensure_section(lines: List[str], section: str) -> List[str]:
+    """Ensure a `## <section>` header exists under `# Tasks`.
+
+    Auto-creates a missing STANDARD section (Now/Backlog/Skipped) in canonical
+    order; non-standard names are left alone so typos still error. Idempotent.
+    """
+    if section not in TASK_SECTIONS:
+        return lines
+    start, _ = find_section_bounds(lines, section)
+    if start is not None:
+        return lines
+
+    order = ["Now", "Backlog", "Skipped"]
+    later = order[order.index(section) + 1:] if section in order else []
+
+    tasks_idx = next((i for i, ln in enumerate(lines) if ln.rstrip() == TASKS_HEADER), None)
+    if tasks_idx is None:
+        prefix = [] if (lines and lines[-1].strip() == "") else [""]
+        return lines + prefix + [TASKS_HEADER, "", f"## {section}", ""]
+
+    end = next((j for j in range(tasks_idx + 1, len(lines)) if lines[j].startswith("# ")), len(lines))
+    insert_at = end
+    for j in range(tasks_idx + 1, end):
+        if is_section_header(lines[j]) and section_name(lines[j]) in later:
+            insert_at = j
+            break
+    lines[insert_at:insert_at] = [f"## {section}", ""]
+    return lines
 
 
 def find_item_line_index(lines: List[str], item_id: str) -> Tuple[Optional[int], int]:
@@ -708,7 +738,9 @@ def get_or_create_shadow(lines: List[str], feature_id: str, target_section: str)
     shadow_line = build_item_line("", iid, prio, status, shadow_rest)
 
     # Insert right after section header, skipping blank lines but stopping at boundaries
+    lines = ensure_section(lines, target_section)  # auto-create a missing standard section
     sec_start, _ = find_section_bounds(lines, target_section)
+    assert sec_start is not None  # ensure_section guarantees a standard section exists
     insert_at = sec_start + 1
     while insert_at < len(lines):
         ln = lines[insert_at]
@@ -839,6 +871,10 @@ def move_item_to_section(lines: List[str], item_id: str, target_section: str,
         enforce_single_wip: If True and new_status is 'doing', reset other WIP items
     """
     item_id = normalize_id(item_id)
+
+    # Auto-create the target section if it's a missing standard section, so the
+    # move (and any shadow handling) never targets a non-existent section.
+    lines = ensure_section(lines, target_section)
 
     # Find current position and section
     idx, _ = find_item_line_index(lines, item_id)
