@@ -1387,6 +1387,44 @@ else
 fi
 
 # ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 48: tags are parsed from the trailing tag region, not prose (issue #9) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Prose parsing" --prio P1 --section Now > /dev/null
+run new task "Real work" --prio P0 --under F-0001 --milestone m1 > /dev/null
+# Title MENTIONS @milestone= and @tags= in prose but carries NO real milestone tag.
+run new task "Migrate @tags=foo -> @milestone=foo across tasks" --prio P1 --under F-0001 > /dev/null
+
+out=$(run milestone)
+assert_contains "Real milestone m1 counted" "$out" "m1"
+assert_not_contains "No phantom bucket from prose @milestone=foo" "$out" "foo"
+
+out=$(run list --milestone default)
+assert_contains "Prose-only task falls into default bucket" "$out" "T-0002"
+
+out=$(run list --milestone foo)
+assert_not_contains "Prose mention does not match a milestone filter" "$out" "T-0002"
+
+out=$(run show T-0002)
+assert_not_contains "show does not report a prose milestone" "$out" "Milestone:"
+
+# migrate must not treat a prose @milestone= as an existing (conflicting) assignment.
+run set T-0002 --tags realtag > /dev/null
+out=$(run migrate-tags-to-milestone realtag)
+assert_contains "Prose task migrates (not skipped as a false conflict)" "$out" "Migrated 1"
+out=$(run show T-0002)
+assert_contains "Migrated task now resolves to realtag" "$out" "Milestone: realtag"
+
+# write side: setting a tag must not strip a look-alike token out of the title prose.
+out=$(grep "(T-0002)" TASKS.md)
+assert_contains "Prose @milestone=foo preserved in the title" "$out" "@milestone=foo across tasks"
+
+out=$(run validate)
+assert_contains "Validate still passes with prose look-alikes" "$out" "OK"
+
+# ============================================================
 # Summary
 # ============================================================
 echo -e "\n${YELLOW}======================================${NC}"

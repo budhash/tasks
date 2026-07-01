@@ -40,6 +40,9 @@ Details (optional):
   These are "detail lines" and are preserved during subtree moves.
 
 Tags (optional, machine-friendly):
+  Machine tags live in a trailing run of @… tokens AFTER the title. A bare
+  @key=value written inside the descriptive title/prose is NOT parsed as a tag
+  (so a task titled "convert @tags=x to @milestone=x" carries no such tags).
   @deps=F-0002,T-0011   Blocked by / depends on
   @rel=T-0100,F-0003    Related / associated
   @branch=feat/foo      Implementing branch
@@ -185,7 +188,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Iterator
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 # Canonical source for `selfupdate` — the published raw URL. `selfupdate`
 # overwrites this very script with the fetched content, so a NON-default source
@@ -655,20 +658,19 @@ def get_all_items(lines: List[str]) -> Dict[str, dict]:
         parsed = parse_item(line)
         if parsed:
             indent, box, iid, prio, status, rest = parsed
-            deps_match = TAG_DEPS_RE.search(rest)
-            milestone_match = TAG_MILESTONE_RE.search(rest)
             shadow = is_shadow(line)
             # Skip shadow entries — they duplicate primary IDs
             if shadow:
                 continue
+            # Extract tags from the trailing tag region only (never from prose).
             items[iid] = {
                 "line_num": i,
                 "indent": len(indent),
                 "prio": prio,
                 "status": status,
                 "rest": rest,
-                "deps": parse_id_list(deps_match.group(1)) if deps_match else [],
-                "milestone": milestone_match.group(1) if milestone_match else None,
+                "deps": parse_id_list(_get_tag_value(rest, TAG_DEPS_RE) or ""),
+                "milestone": _get_tag_value(rest, TAG_MILESTONE_RE),
                 "is_shadow": shadow,
             }
     return items
@@ -1280,38 +1282,64 @@ def _warn_unknown_milestone(value: str, lines: Optional[List[str]] = None) -> No
 # -------------------------
 # Tag editing (@deps / @rel / @branch / @pr)
 # -------------------------
+# Machine tags live in a trailing run of `@…` tokens after the title. A bare
+# `@key=value` mentioned in the descriptive title/prose is NOT a tag — so tags
+# are parsed from (and edited in) only that trailing region, never free text.
+_KNOWN_MACHINE_TAGS = ("deps", "rel", "branch", "pr", "issue", "tags",
+                       "effort", "system", "milestone", "done")
+_TAG_TOKEN_RE = re.compile(r'^@(?:' + "|".join(_KNOWN_MACHINE_TAGS) + r')=\S+$')
+
+
+def _is_tag_token(tok: str) -> bool:
+    """True if `tok` is a recognized machine-tag token (`@shadow` or `@name=value`)."""
+    return tok == "@shadow" or bool(_TAG_TOKEN_RE.match(tok))
+
+
+def split_item_tags(rest: str) -> Tuple[str, List[str]]:
+    """Split an item's `rest` into (title, trailing_tag_tokens).
+
+    Only the trailing contiguous run of recognized `@…` tokens counts as tags;
+    a `@key=value` that appears earlier (in the descriptive title) stays in the
+    title. Whitespace is normalized to single spaces, matching how the tool
+    already writes tags — so tool-managed lines are unaffected.
+    """
+    tokens = rest.split()
+    i = len(tokens)
+    while i > 0 and _is_tag_token(tokens[i - 1]):
+        i -= 1
+    return " ".join(tokens[:i]), tokens[i:]
+
+
+def _tag_token_is(tok: str, tag: str) -> bool:
+    return tok == f"@{tag}" or tok.startswith(f"@{tag}=")
+
+
+def _join_title_tags(title: str, tag_tokens: List[str]) -> str:
+    return " ".join(([title] if title else []) + tag_tokens)
+
+
 def _get_tag_value(rest: str, tag_re: re.Pattern) -> Optional[str]:
-    m = tag_re.search(rest)
+    # Search only the trailing tag region, so prose mentions aren't read as tags.
+    _title, tag_tokens = split_item_tags(rest)
+    m = tag_re.search(" ".join(tag_tokens))
     return m.group(1) if m else None
 
 
 def _set_or_remove_tag(rest: str, tag: str, values: List[str]) -> str:
-    # remove existing tag first
-    rest = re.sub(rf'@{tag}=[^\s]+', '', rest).strip()
-    # normalize whitespace to single spaces
-    rest = " ".join(rest.split())
+    title, tag_tokens = split_item_tags(rest)
+    tag_tokens = [t for t in tag_tokens if not _tag_token_is(t, tag)]
     if values:
-        suffix = f"@{tag}=" + ",".join(values)
-        if rest:
-            rest = rest + " " + suffix
-        else:
-            rest = suffix
-    return rest
+        tag_tokens.append(f"@{tag}=" + ",".join(values))
+    return _join_title_tags(title, tag_tokens)
 
 
 def _set_single_tag(rest: str, tag: str, value: Optional[str]) -> str:
-    """Set a single-value tag like @branch or @pr."""
-    # remove existing tag first
-    rest = re.sub(rf'@{tag}=[^\s]+', '', rest).strip()
-    # normalize whitespace to single spaces
-    rest = " ".join(rest.split())
+    """Set a single-value tag like @branch or @pr (only within the tag region)."""
+    title, tag_tokens = split_item_tags(rest)
+    tag_tokens = [t for t in tag_tokens if not _tag_token_is(t, tag)]
     if value:
-        suffix = f"@{tag}={value}"
-        if rest:
-            rest = rest + " " + suffix
-        else:
-            rest = suffix
-    return rest
+        tag_tokens.append(f"@{tag}={value}")
+    return _join_title_tags(title, tag_tokens)
 
 
 def edit_links(item_id: str,

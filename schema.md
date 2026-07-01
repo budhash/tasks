@@ -33,6 +33,10 @@ One line per item, exact format:
 
 ## Tags (optional)
 
+Machine tags live in the **trailing run of `@…` tokens** after the title. A
+`@key=value` written inside the descriptive title/prose is left as text, not
+parsed as a tag.
+
 | Tag | Meaning |
 |---|---|
 | `@deps=F-2,T-11` | Blocked by / depends on |
