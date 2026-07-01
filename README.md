@@ -170,7 +170,9 @@ rewrites those into `@milestone=m1` so nothing is orphaned. When a registry
 exists, `validate` warns (never errors) on an `@milestone=` value it doesn't know.
 
 The sentinel bucket name defaults to `default`; override it with
-`TASKS_MILESTONE_SENTINEL` (it may not look like an `M<n>` id).
+`TASKS_MILESTONE_SENTINEL` (it must not look like an `M<n>` id — the tool rejects
+one that does). `set … --milestone ""` clears to the sentinel; `clear` and the
+sentinel name itself also clear.
 
 ## selfupdate
 

@@ -83,14 +83,16 @@ Without one, milestones are freeform (any string, grouped by raw value).
 | Command | What |
 |---|---|
 | `new … --milestone m1` | Assign at creation |
-| `set T-7 --milestone alpha` | Assign/change (alias ok); `""` clears to sentinel |
+| `set T-7 --milestone alpha` | Assign/change (alias ok); `""`, `clear`, or the sentinel name clears |
 | `list --milestone m1` | Filter (alias-resolved; `default` = unassigned) |
-| `milestone` / `milestone M1` | Rollup / one milestone's detail |
+| `milestone` / `milestone M1` / `milestone --table` | Rollup / one milestone's detail / milestone×features table |
 | `next --milestone m1` | Next actionable task within a milestone |
-| `migrate-tags-to-milestone m1` | Rewrite interim `@tags=m1` → `@milestone=m1` |
+| `migrate-tags-to-milestone m1` | Rewrite interim `@tags=m1` → `@milestone=m1` (conflicting `@milestone=` left intact + reported) |
 
 `validate` warns (never errors) on an `@milestone=` value missing from the
-registry, when a registry exists.
+registry, and on registry-health problems (duplicate ids, colliding aliases),
+when a registry exists. Assigning an unknown milestone via `new`/`set` also
+prints a freeform warning. The sentinel is never written into a task line.
 
 ## Invariants enforced
 
