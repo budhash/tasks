@@ -4,6 +4,18 @@ All notable changes to `tasks`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [1.1.1] — 2026-07-01
+
+### Fixed
+- Machine tags (`@milestone=`, `@deps=`, `@tags=`, `@effort=`, …) are now parsed
+  and edited only in the trailing tag region of an item line, not by scanning the
+  whole line. A task whose descriptive title merely *mentions* `@milestone=foo`
+  (e.g. one titled after the `@tags=… → @milestone=…` migration) is no longer
+  miscounted into a phantom milestone bucket by `milestone`, and
+  `migrate-tags-to-milestone` no longer treats it as an already-assigned conflict
+  and skips it. The write path is fixed too: `set`/`link` no longer strip a
+  look-alike `@key=value` out of the title prose. (#9)
+
 ## [1.1.0] — 2026-07-01
 
 ### Added
