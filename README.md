@@ -97,6 +97,8 @@ Highlights:
 | `tree` / `list [filters]` / `show ID [--full]` | Views |
 | `next` | Next actionable task (highest prio, unblocked, in `Now`) |
 | `mv` / `set` / `link` | Move sections, set fields, edit deps/relations |
+| `milestone [ID]` | Per-milestone rollup, or one milestone's detail (`--table` for a milestone×features view) |
+| `migrate-tags-to-milestone TAG` | Rewrite an interim `@tags=TAG` into `@milestone=TAG` |
 | `sync ID` | Reconcile a task with its linked GitHub issue (`@issue=`; needs the `gh` CLI) |
 | `validate` | Check the file (CI-friendly, non-zero on failure) |
 | `version` / `selfupdate` | Show version / sync to canonical |
@@ -113,9 +115,62 @@ Highlights:
   another section, `tasks` leaves a lightweight duplicate of the parent feature
   line tagged `@shadow` so the hierarchy stays readable across sections. They're
   managed automatically (and cleaned up); don't hand-edit them.
+- **Milestones (opt-in).** Tag features/tasks with `@milestone=<id-or-alias>` to
+  roll work up to *"how close is milestone M1?"*. It's fully optional and
+  backward-compatible: a file with no milestone data behaves exactly as before,
+  and anything untagged falls into an implicit `default` bucket. An optional
+  `# Milestones` registry unlocks aliases (`@milestone=alpha` ≡ `@milestone=m1`),
+  statuses, and titles. See the [milestone workflow](#milestones) below.
 - **Commit your `TASKS.md`.** It's meant to be versioned with your code.
   (This repo's `.gitignore` ignores a root `TASKS.md` only because it's the
   tool's own test scratch — that does not apply to your project.)
+
+## Milestones
+
+Milestones are an **opt-in** dimension for rolling work up to a delivery target.
+Existing files need no migration — untagged items resolve to an implicit
+`default` bucket, and everything below is inert until you start tagging.
+
+```bash
+# 1. (Optional) declare a registry — its own H1 section in TASKS.md.
+#    Without it, milestones are freeform (any string, grouped by raw value).
+cat >> TASKS.md <<'EOF'
+
+# Milestones
+
+- M1  alias=alpha  status=active   Federal estimate (North-Star)
+- M2  alias=beta   status=planned  Surfaces / API
+EOF
+
+# 2. Tag work — features and tasks both accept @milestone= (alias or id).
+./tools/tasks.py set F-0001 --milestone m1        # assign an existing feature
+./tools/tasks.py new task "Estimator" --under F-0001 --milestone alpha
+./tools/tasks.py set T-0007 --milestone ""        # clear back to the sentinel
+
+# 3. Roll it up.
+./tools/tasks.py milestone            # per-milestone task counts, %done, sentinel bucket
+./tools/tasks.py milestone M1         # one milestone's tasks, grouped by status
+./tools/tasks.py milestone --table    # milestone × features × status table
+./tools/tasks.py list --milestone m1  # filter (alias-resolved; 'default' = unassigned)
+./tools/tasks.py next --milestone m1  # next actionable task within M1
+```
+
+`milestone --table` gives the delivery-oriented view — each milestone, the
+features assigned to it, and the milestone's status:
+
+```
+MILESTONE       FEATURES              STATUS
+M1 (alpha)      F-0001, F-0003        active
+M2 (beta)       F-0002                planned
+default         F-0004                —
+```
+
+Adopting the interim `@tags=m1` convention first? `migrate-tags-to-milestone m1`
+rewrites those into `@milestone=m1` so nothing is orphaned. When a registry
+exists, `validate` warns (never errors) on an `@milestone=` value it doesn't know.
+
+The sentinel bucket name defaults to `default`; override it with
+`TASKS_MILESTONE_SENTINEL` (it may not look like an `M<n>` id).
 
 ## selfupdate
 

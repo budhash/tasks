@@ -4,6 +4,25 @@ All notable changes to `tasks`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [1.1.0] — 2026-07-01
+
+### Added
+- First-class **milestone** dimension (opt-in, fully backward-compatible). A task
+  may carry one `@milestone=<id-or-alias>` tag; a task without it resolves to an
+  implicit sentinel bucket (`default`, configurable via `TASKS_MILESTONE_SENTINEL`,
+  which may not match the `M<n>` id pattern). The sentinel is never written to
+  task lines, so existing `TASKS.md` files round-trip byte-for-byte.
+- Optional `# Milestones` registry section mapping id → alias → status → title.
+  When present it powers alias resolution (`@milestone=alpha` ≡ `@milestone=m1`)
+  and rollups; when absent, milestones are freeform (grouped by raw value).
+- CLI: `new … --milestone`, `set T-N --milestone` (`""` clears to the sentinel),
+  `list --milestone` (alias-resolved; `default` = unassigned), `next --milestone`,
+  a new `milestone` rollup command with a `milestone <id>` detail view, and a
+  `migrate-tags-to-milestone <tag>` helper for projects moving off the interim
+  `@tags=<id>` convention. `show` now displays a resolved `Milestone:` line.
+- `validate` warns (exit 0) on an `@milestone=` value not in the registry when a
+  registry exists; it never hard-fails on milestone data.
+
 ## [1.0.1] — 2026-06-21
 
 ### Fixed
