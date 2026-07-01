@@ -48,6 +48,7 @@ Tags (optional, machine-friendly):
   @tags=security,fix    Custom tags (comma-separated)
   @effort=4h            Estimated effort in hours
   @system=sprint-1      System tag (sprint-*, milestone-*, phase-*, epic-*)
+  @milestone=m1         Milestone id or alias (first-class; see Milestones)
   @done=YYYY-MM-DD      Completion date (auto-added)
 
 Notes Section
@@ -77,6 +78,36 @@ their section while preserving Feature grouping.
   - Empty shadows are auto-cleaned after moves
   - `validate` warns about empty shadows and errors on orphaned shadows
 
+Milestones (optional, opt-in)
+-----------------------------
+A task may carry ONE milestone via an @milestone=<id-or-alias> tag. It is
+strictly optional and orthogonal to @system=/@tags=: a file with no milestone
+data behaves exactly as before, and a task without the tag resolves to an
+implicit sentinel bucket named "default" (configurable via the
+TASKS_MILESTONE_SENTINEL env var; it must not look like an M<n> id). The
+sentinel is never written into task lines.
+
+An optional "# Milestones" registry (its own H1 section) maps ids to aliases,
+statuses, and titles. When present it powers alias resolution (@milestone=alpha
+and @milestone=m1 are the same milestone) and rollups; when absent, milestones
+are freeform (any string accepted, grouped by raw value). Example:
+
+  # Milestones
+
+  - M1  alias=alpha  status=active   Complete federal estimate (North-Star)
+  - M2  alias=beta   status=planned  Surfaces / API
+
+  new task "x" --milestone m1     Assign at creation
+  set T-7 --milestone alpha       Assign/change (alias ok); "", "clear", or the
+                                    sentinel name clears back to the sentinel
+  list --milestone m1             Filter (alias-resolved; 'default' = unassigned)
+  milestone                       Per-milestone rollup (counts, %done, sentinel)
+  milestone M1                    Detail: tasks under M1, grouped by status
+  milestone --table               milestone x features x status table (features
+                                    are attributed directly or via their tasks)
+  next --milestone m1             Next actionable task within M1
+  migrate-tags-to-milestone m1    Rewrite interim @tags=m1 -> @milestone=m1
+
 Short References
 ----------------
 CLI accepts: F-1, F-001, F-0001; T-7, T-007, T-0007
@@ -91,12 +122,14 @@ Commands
                                      Sync this copy to canonical (https-only; a
                                      non-default --source needs the allow flag)
   validate                           Validate TASKS.md (CI-friendly; exits non-zero on failure)
-  list [filters]                     List items (--prio --status --tag --section --issue --effort --system)
+  list [filters]                     List items (--prio --status --tag --section --issue --effort
+                                       --system --milestone)
   tree                               Pretty hierarchy view
   show ID [--full]                   Show item with children (--full includes notes from # Notes)
-  next                               Show next actionable task (highest prio, unblocked, in Now)
+  next [--milestone ID]              Show next actionable task (highest prio, unblocked, in Now)
   new (feature|task) "Title" [...]   Create item (--prio|--priority, --status, --under ID,
-                                       --section NAME, --effort HOURS, --tags TAG1,TAG2, --deps ID1,ID2)
+                                       --section NAME, --effort HOURS, --tags TAG1,TAG2, --deps ID1,ID2,
+                                       --milestone ID)
   mv ID (--section NAME|--under ID)  Move item subtree (auto-sorts Now by priority)
   start|done|skip|defer ID           Status transitions (start enforces single WIP)
   reopen ID                          Reset terminal status (done/skipped/deferred) back to todo
@@ -109,6 +142,10 @@ Commands
   set ID --tags TAG1,TAG2            Set @tags= (custom labels)
   set ID --effort HOURS              Set @effort= (e.g., 4h, 8h)
   set ID --system TAG                Set @system= (sprint-*, milestone-*, phase-*, epic-*)
+  set ID --milestone ID              Set @milestone= (id/alias; "", "clear", or sentinel name clears)
+  milestone [ID] [--table]           Milestone rollup; `milestone ID` for detail; `--table` for a
+                                       milestone x features x status table
+  migrate-tags-to-milestone TAG      Rewrite interim @tags=TAG into @milestone=TAG
   current                            Show current task(s) in [doing] status
   sync ID                            Sync task with linked GitHub issue
   backlog [ID]                       List Backlog items, or move ID to Backlog
@@ -130,6 +167,11 @@ Examples
   ./tools/tasks.py show F-1 --full             # Merged view across sections
   ./tools/tasks.py tree                        # Merged Feature display with section labels
   ./tools/tasks.py list --system sprint-1 --status todo
+  ./tools/tasks.py new task "Estimator" --under F-1 --milestone m1
+  ./tools/tasks.py set T-7 --milestone alpha    # stored as-is; shows as M1 on read
+  ./tools/tasks.py list --milestone m1          # alias-resolved; 'default' = unassigned
+  ./tools/tasks.py milestone                    # per-milestone rollup
+  ./tools/tasks.py milestone M1                 # one milestone's detail
   ./tools/tasks.py next
   ./tools/tasks.py done T-7
 """
@@ -143,7 +185,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Iterator
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 # Canonical source for `selfupdate` — the published raw URL. `selfupdate`
 # overwrites this very script with the fetched content, so a NON-default source
@@ -185,11 +227,20 @@ TAG_PATTERNS = {
     "tags": re.compile(r'@tags=([^\s]+)'),
     "effort": re.compile(r'@effort=(\d+h?)'),
     "system": re.compile(r'@system=([^\s]+)'),
+    "milestone": re.compile(r'@milestone=([^\s]+)'),
     "shadow": re.compile(r'@shadow\b'),
 }
 
-# Valid @system= prefixes (system-controlled tags)
+# Valid @system= prefixes (system-controlled tags). NOTE: @system=milestone-* is
+# a distinct, older namespace; the first-class milestone dimension uses the
+# separate @milestone= tag (see the # Milestones registry). They do not overlap.
 SYSTEM_PREFIXES = ("sprint-", "milestone-", "phase-", "epic-")
+
+# Milestone support (opt-in; fully backward-compatible).
+# A task optionally carries one @milestone=<id-or-alias>; absent => sentinel.
+MILESTONE_HEADER = "# Milestones"
+# Canonical milestone IDs look like M1, M2, ... (case-insensitive on read).
+MILESTONE_ID_RE = re.compile(r'^M\d+$', re.IGNORECASE)
 
 # Top-level document parts (H1 headers: # Meta, # Tasks, # Notes)
 META_HEADER = "# Meta"
@@ -208,6 +259,7 @@ TAG_ISSUE_RE = TAG_PATTERNS["issue"]
 TAG_TAGS_RE = TAG_PATTERNS["tags"]
 TAG_EFFORT_RE = TAG_PATTERNS["effort"]
 TAG_SYSTEM_RE = TAG_PATTERNS["system"]
+TAG_MILESTONE_RE = TAG_PATTERNS["milestone"]
 TAG_SHADOW_RE = TAG_PATTERNS["shadow"]
 
 
@@ -604,6 +656,7 @@ def get_all_items(lines: List[str]) -> Dict[str, dict]:
         if parsed:
             indent, box, iid, prio, status, rest = parsed
             deps_match = TAG_DEPS_RE.search(rest)
+            milestone_match = TAG_MILESTONE_RE.search(rest)
             shadow = is_shadow(line)
             # Skip shadow entries — they duplicate primary IDs
             if shadow:
@@ -615,6 +668,7 @@ def get_all_items(lines: List[str]) -> Dict[str, dict]:
                 "status": status,
                 "rest": rest,
                 "deps": parse_id_list(deps_match.group(1)) if deps_match else [],
+                "milestone": milestone_match.group(1) if milestone_match else None,
                 "is_shadow": shadow,
             }
     return items
@@ -1039,6 +1093,191 @@ def get_notes_for_id(lines: List[str], item_id: str) -> Optional[str]:
 
 
 # -------------------------
+# Milestone support
+# -------------------------
+def milestone_sentinel() -> str:
+    """The implicit milestone bucket for tasks with no @milestone= tag.
+
+    Defaults to 'default' (configurable via TASKS_MILESTONE_SENTINEL to e.g.
+    'none'/'backlog'). It must NOT match the M<n> ID pattern, otherwise
+    `set T-N --milestone m1` would be ambiguous between "assign to M1" and
+    "clear to the sentinel".
+    """
+    s = (os.environ.get("TASKS_MILESTONE_SENTINEL", "default") or "").strip() or "default"
+    if MILESTONE_ID_RE.match(s):
+        raise SystemExit(
+            f"Invalid milestone sentinel '{s}': must not match milestone ID pattern M<n> "
+            f"(set TASKS_MILESTONE_SENTINEL to a non-'M<n>' value like 'default').")
+    return s
+
+
+def _parse_milestone_line(text: str) -> Optional[dict]:
+    """Parse one registry entry body (without the leading '- ').
+
+    Format: `M1  alias=alpha  status=active   Free-text title`
+    alias= and status= are optional; the remaining words form the title.
+    Returns None if the first token is not an M<n> ID.
+    """
+    parts = text.split()
+    if not parts or not MILESTONE_ID_RE.match(parts[0]):
+        return None
+    alias = None
+    status = None
+    title_tokens: List[str] = []
+    for tok in parts[1:]:
+        low = tok.lower()
+        if low.startswith("alias="):
+            alias = tok.split("=", 1)[1] or None
+        elif low.startswith("status="):
+            status = tok.split("=", 1)[1] or None
+        else:
+            title_tokens.append(tok)
+    return {
+        "id": parts[0].upper(),
+        "alias": alias,
+        "status": status,
+        "title": " ".join(title_tokens),
+    }
+
+
+def parse_milestone_registry(lines: List[str]) -> Tuple[Dict[str, dict], Dict[str, str]]:
+    """Parse the optional `# Milestones` registry section.
+
+    Returns (registry, alias_map):
+      registry:  canonical-ID (upper, e.g. 'M1') -> {id, alias, status, title}
+      alias_map: lowercased ID and alias -> canonical-ID
+    Both are empty when there is no registry (freeform mode) — this is what keeps
+    milestones backward-compatible and opt-in.
+    """
+    registry: Dict[str, dict] = {}
+    alias_map: Dict[str, str] = {}
+
+    start = None
+    for i, line in enumerate(lines):
+        if line.rstrip() == MILESTONE_HEADER:
+            start = i
+            break
+    if start is None:
+        return registry, alias_map
+
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith("# ") and lines[j].rstrip() != MILESTONE_HEADER:
+            end = j
+            break
+
+    in_code = False
+    for j in range(start + 1, end):
+        s = lines[j].strip()
+        if s.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code or not s.startswith("- "):
+            continue
+        entry = _parse_milestone_line(s[2:].strip())
+        if not entry:
+            continue
+        cid = entry["id"]
+        registry[cid] = entry
+        alias_map[cid.lower()] = cid
+        if entry["alias"]:
+            alias_map[entry["alias"].lower()] = cid
+    return registry, alias_map
+
+
+def resolve_milestone_key(raw: Optional[str], alias_map: Dict[str, str], sentinel: str) -> str:
+    """Resolve a raw @milestone= value (or filter argument) to its canonical key.
+
+    - None / empty / the sentinel name  -> the sentinel bucket.
+    - With a registry: an ID or alias   -> canonical uppercase ID (e.g. 'M1').
+    - Otherwise (freeform / unknown)     -> the raw value, unchanged.
+    """
+    if raw is None:
+        return sentinel
+    raw = raw.strip()
+    if raw == "" or raw.lower() == sentinel.lower():
+        return sentinel
+    if alias_map:
+        canon = alias_map.get(raw.lower())
+        if canon:
+            return canon
+    return raw
+
+
+def milestone_label(key: str, registry: Dict[str, dict], sentinel: str) -> str:
+    """Human-readable label for a resolved milestone key, e.g. 'M1 (alpha)'."""
+    entry = registry.get(key)
+    if entry and entry.get("alias"):
+        return f"{key} ({entry['alias']})"
+    return key
+
+
+def milestone_registry_issues(lines: List[str]) -> List[str]:
+    """Warnings about the `# Milestones` registry's own health (not task values).
+
+    parse_milestone_registry is last-wins and silently drops unparseable lines,
+    so a duplicate id, a colliding alias, or a typo'd id would otherwise resolve
+    tasks to the wrong milestone with no signal. `validate` surfaces these.
+    """
+    issues: List[str] = []
+    start = None
+    for i, line in enumerate(lines):
+        if line.rstrip() == MILESTONE_HEADER:
+            start = i
+            break
+    if start is None:
+        return issues
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith("# ") and lines[j].rstrip() != MILESTONE_HEADER:
+            end = j
+            break
+
+    seen_ids: Dict[str, int] = {}          # canonical id -> first line
+    alias_owner: Dict[str, Tuple[str, int]] = {}  # alias.lower() -> (id, line)
+    in_code = False
+    for j in range(start + 1, end):
+        s = lines[j].strip()
+        if s.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code or not s.startswith("- "):
+            continue
+        body = s[2:].strip()
+        entry = _parse_milestone_line(body)
+        if not entry:
+            # Looks intended (carries alias=/status=) but failed to parse.
+            if "alias=" in body.lower() or "status=" in body.lower():
+                issues.append(f"{TASK_FILE}:{j + 1}: unparseable milestone registry line (id must match M<n>): {body!r}")
+            continue
+        cid = entry["id"]
+        if cid in seen_ids:
+            issues.append(f"{TASK_FILE}:{j + 1}: duplicate milestone id {cid} (first at line {seen_ids[cid]})")
+        else:
+            seen_ids[cid] = j + 1
+        if entry["alias"]:
+            al = entry["alias"].lower()
+            if al in alias_owner and alias_owner[al][0] != cid:
+                issues.append(f"{TASK_FILE}:{j + 1}: alias '{entry['alias']}' already used by {alias_owner[al][0]} (line {alias_owner[al][1]})")
+            else:
+                alias_owner.setdefault(al, (cid, j + 1))
+            if MILESTONE_ID_RE.match(entry["alias"]) and entry["alias"].upper() != cid:
+                issues.append(f"{TASK_FILE}:{j + 1}: alias '{entry['alias']}' looks like a different milestone id")
+    return issues
+
+
+def _warn_unknown_milestone(value: str, lines: Optional[List[str]] = None) -> None:
+    """Non-fatal nudge when assigning a milestone absent from an existing registry.
+
+    Assignment still succeeds (freeform is allowed by design); this just prevents
+    a typo like `--milestone m11` from silently dropping out of `--milestone m1`.
+    """
+    registry, alias_map = parse_milestone_registry(lines if lines is not None else load())
+    if registry and value and value.lower() != milestone_sentinel().lower() and value.lower() not in alias_map:
+        eprint(f"warning: '{value}' is not in the # Milestones registry (assigned as freeform).")
+
+
+# -------------------------
 # Tag editing (@deps / @rel / @branch / @pr)
 # -------------------------
 def _get_tag_value(rest: str, tag_re: re.Pattern) -> Optional[str]:
@@ -1229,12 +1468,25 @@ def cmd_validate():
     shadow_features: Dict[str, List[int]] = {}  # F-ID -> [line numbers]
     doing_count = 0
 
+    # Milestone registry (optional): powers the "unknown milestone" WARNING.
+    registry, alias_map = parse_milestone_registry(lines)
+    sentinel = milestone_sentinel()
+    # Registry-internal health (duplicate ids, alias collisions) — warnings only.
+    warnings.extend(milestone_registry_issues(lines))
+
     for i, line in iter_content_lines(lines):
         parsed = parse_item(line)
         if not parsed:
             continue
         indent, box, iid, prio, status, rest = parsed
         lineno = i + 1
+
+        # Warn (never error) on an @milestone= value not in the registry.
+        if registry:
+            mval = _get_tag_value(rest, TAG_MILESTONE_RE)
+            if mval and mval.lower() != sentinel.lower() and mval.lower() not in alias_map:
+                warnings.append(
+                    f"{TASK_FILE}:{lineno}: unknown milestone '{mval}' (not in # Milestones registry)")
 
         # Shadow-aware duplicate check for Features
         if iid.startswith("F-") and is_shadow(line):
@@ -1363,6 +1615,7 @@ def cmd_list(args: List[str] = None):
         "issue": None,     # has @issue= tag (any or specific number)
         "effort": None,    # has @effort= tag (any or specific value like 4h)
         "system": None,    # has @system= tag (any or exact match like sprint-1)
+        "milestone": None, # milestone id/alias (or 'default' for the sentinel)
     }
 
     # Parse filter arguments
@@ -1401,11 +1654,25 @@ def cmd_list(args: List[str] = None):
             else:
                 filters["system"] = "*"  # Any system tag
                 i += 1
+        elif args[i] == "--milestone":
+            if i + 1 >= len(args):
+                raise SystemExit("--milestone requires a value (id/alias, or 'default' for unassigned)")
+            filters["milestone"] = args[i + 1]
+            i += 2
         else:
-            raise SystemExit(f"Unknown filter: {args[i]}. Use --prio, --status, --tag, --section, --issue, --effort, --system")
+            raise SystemExit(f"Unknown filter: {args[i]}. Use --prio, --status, --tag, --section, --issue, --effort, --system, --milestone")
 
     lines = load()
     current_section = None
+
+    # Resolve the milestone filter up front (registry powers alias resolution).
+    milestone_filter_key = None
+    alias_map: Dict[str, str] = {}
+    sentinel = ""
+    if filters["milestone"]:
+        _registry, alias_map = parse_milestone_registry(lines)
+        sentinel = milestone_sentinel()
+        milestone_filter_key = resolve_milestone_key(filters["milestone"], alias_map, sentinel)
 
     for idx, line in iter_content_lines(lines):
         if is_section_header(line):
@@ -1457,6 +1724,11 @@ def cmd_list(args: List[str] = None):
                 # Exact match for system tags
                 if system_value != filters["system"]:
                     continue
+        if milestone_filter_key is not None:
+            task_key = resolve_milestone_key(
+                _get_tag_value(rest, TAG_MILESTONE_RE), alias_map, sentinel)
+            if task_key.lower() != milestone_filter_key.lower():
+                continue
 
         print(line.rstrip())
 
@@ -1607,6 +1879,13 @@ def _print_show_metadata(lines: List[str], idx: int, item_id: str, full: bool):
                 prefix = "#" if label in ("PR", "Issue") else ""
                 print(f"  {label}: {prefix}{val}")
 
+        # Milestone (resolved through the registry when one exists).
+        mval = _get_tag_value(rest, TAG_MILESTONE_RE)
+        if mval:
+            registry, alias_map = parse_milestone_registry(lines)
+            key = resolve_milestone_key(mval, alias_map, milestone_sentinel())
+            print(f"  Milestone: {milestone_label(key, registry, milestone_sentinel())}")
+
     if full:
         notes = get_notes_for_id(lines, item_id)
         if notes:
@@ -1700,13 +1979,38 @@ def cmd_show(item_id: str, full: bool = False):
     _print_show_metadata(lines, idx, item_id, full)
 
 
-def cmd_next():
-    """Find the next actionable task: highest priority, unblocked, in 'Now' section, status=todo."""
+def cmd_next(args: List[str] = None):
+    """Find the next actionable task: highest priority, unblocked, in 'Now' section, status=todo.
+
+    With `--milestone <id|alias>`, restrict to the next actionable task within
+    that milestone (alias-resolved). Default `next` is unchanged.
+    """
+    args = args or []
+    milestone_filter = None
+    i = 0
+    while i < len(args):
+        if args[i] == "--milestone":
+            if i + 1 >= len(args):
+                raise SystemExit("--milestone requires a value (id/alias, or 'default')")
+            milestone_filter = args[i + 1]
+            i += 2
+        else:
+            raise SystemExit(f"Unknown arg: {args[i]}. Usage: next [--milestone ID]")
+
     lines = load()
     items = get_all_items(lines)
 
     # Get done items for dependency checking
     done_ids = {iid for iid, item in items.items() if item["status"] == "done"}
+
+    # Resolve the milestone filter (registry powers alias resolution).
+    milestone_filter_key = None
+    alias_map: Dict[str, str] = {}
+    sentinel = ""
+    if milestone_filter:
+        _registry, alias_map = parse_milestone_registry(lines)
+        sentinel = milestone_sentinel()
+        milestone_filter_key = resolve_milestone_key(milestone_filter, alias_map, sentinel)
 
     # Find items in "Now" section
     now_start, now_end = find_section_bounds(lines, "Now")
@@ -1726,6 +2030,12 @@ def cmd_next():
         # Must be todo status
         if item["status"] != "todo":
             continue
+
+        # Optional milestone restriction
+        if milestone_filter_key is not None:
+            task_key = resolve_milestone_key(item["milestone"], alias_map, sentinel)
+            if task_key.lower() != milestone_filter_key.lower():
+                continue
 
         # Must not be blocked by unfinished deps
         blocked = False
@@ -1796,6 +2106,7 @@ def cmd_new(args: List[str]):
     effort = None
     tags = None
     deps = None
+    milestone = None
 
     i = 2
     while i < len(args):
@@ -1834,6 +2145,11 @@ def cmd_new(args: List[str]):
                 raise SystemExit("--deps requires comma-separated IDs (e.g., T-1,T-2)")
             deps = args[i + 1]
             i += 2
+        elif args[i] == "--milestone":
+            if i + 1 >= len(args):
+                raise SystemExit("--milestone requires an id or alias (e.g., m1, alpha)")
+            milestone = args[i + 1]
+            i += 2
         else:
             raise SystemExit(f"Unknown arg: {args[i]}")
 
@@ -1858,6 +2174,15 @@ def cmd_new(args: List[str]):
         dep_ids = parse_id_list(deps)
         if dep_ids:
             tag_parts.append(f"@deps={','.join(dep_ids)}")
+    if milestone is not None:
+        mval = milestone.strip()
+        # An explicit sentinel, "clear", or empty means "no milestone" — write no
+        # tag (parity with `set --milestone`, which treats the same as a clear).
+        if mval and mval.lower() not in ("clear", milestone_sentinel().lower()):
+            if not re.match(r'^[a-zA-Z0-9_-]+$', mval):
+                raise SystemExit(f"Invalid milestone '{mval}'. Use letters, digits, hyphens, underscores.")
+            tag_parts.append(f"@milestone={mval}")
+            _warn_unknown_milestone(mval, lines)
     tag_suffix = (" " + " ".join(tag_parts)) if tag_parts else ""
     item_line = f"- [{box}] ({iid}) [{prio}] [{status}] {title}{suffix}{tag_suffix}\n"
 
@@ -2040,8 +2365,19 @@ def cmd_set(args: List[str]):
         if not re.match(r'^[a-z]+-[a-zA-Z0-9_-]+$', value):
             raise SystemExit(f"Invalid system tag '{value}'. Format: prefix-identifier (e.g., sprint-1, milestone-mvp)")
         set_tag(item_id, "system", value)
+    elif flag == "--milestone":
+        sentinel = milestone_sentinel()
+        # Clear back to the sentinel with empty string, 'clear', or the sentinel name.
+        if value == "" or value.lower() in ("clear", sentinel.lower()):
+            set_tag(item_id, "milestone", "")
+            print(f"Cleared @milestone on {normalize_id(item_id)} (back to '{sentinel}')")
+            return
+        if not re.match(r'^[a-zA-Z0-9_-]+$', value):
+            raise SystemExit(f"Invalid milestone '{value}'. Use letters, digits, hyphens, underscores.")
+        set_tag(item_id, "milestone", value)
+        _warn_unknown_milestone(value)
     else:
-        raise SystemExit(f"Unknown flag: {flag}. Use --branch, --pr, --issue, --tags, --effort, or --system")
+        raise SystemExit(f"Unknown flag: {flag}. Use --branch, --pr, --issue, --tags, --effort, --system, or --milestone")
 
 
 def cmd_current():
@@ -2228,6 +2564,237 @@ def cmd_nextid():
     print(f"    - [ ] ({next_t}) [P2] [todo] New task title @tags=...")
 
 
+def _fmt_milestone_counts(counts: Dict[str, int]) -> str:
+    """One-line status breakdown + total + %done for a milestone bucket."""
+    total = sum(counts.values())
+    done = counts.get("done", 0)
+    pct = int(round(done * 100 / total)) if total else 0
+    parts = "  ".join(f"{s}:{counts.get(s, 0)}"
+                       for s in ("todo", "doing", "done", "skipped", "deferred"))
+    noun = "task" if total == 1 else "tasks"
+    return f"{parts}  |  {total} {noun}, {pct}% done"
+
+
+def _milestone_header(key: str, registry: Dict[str, dict], sentinel: str) -> str:
+    """Display header for a bucket: 'M1 (alpha) [active] — Title', 'default', or raw."""
+    if key == sentinel:
+        return sentinel
+    entry = registry.get(key)
+    if not entry:
+        return key  # freeform (no registry)
+    label = milestone_label(key, registry, sentinel)
+    status = f" [{entry['status']}]" if entry.get("status") else ""
+    title = f" — {entry['title']}" if entry.get("title") else ""
+    return f"{label}{status}{title}"
+
+
+def _print_milestone_table(rows: List[Tuple[str, str, str]]):
+    """Render the milestone x features x status table with aligned columns."""
+    headers = ("MILESTONE", "FEATURES", "STATUS")
+    all_rows = [headers] + rows
+    w0 = max(len(r[0]) for r in all_rows)
+    w1 = max(len(r[1]) for r in all_rows)
+    for label, feats, status in all_rows:
+        print(f"{label.ljust(w0)}  {feats.ljust(w1)}  {status}")
+
+
+def _ordered_milestone_keys(keys: Set[str], registry: Dict[str, dict], sentinel: str) -> List[str]:
+    """Registry milestones first (by numeric ID), then freeform (sorted), sentinel last."""
+    reg = sorted((k for k in registry if k in keys),
+                 key=lambda k: int(re.sub(r'\D', '', k) or 0))
+    freeform = sorted(k for k in keys if k not in registry and k != sentinel)
+    ordered = reg + freeform
+    if sentinel in keys:
+        ordered.append(sentinel)
+    return ordered
+
+
+def cmd_milestone(args: List[str] = None):
+    """Milestone rollup, or `milestone <id|alias>` detail.
+
+    Counts Tasks (T-) grouped by their resolved milestone (ID+alias unified via
+    the registry), including the implicit sentinel bucket. Read-only.
+    """
+    args = args or []
+    detail_arg = None
+    table_mode = False
+    for a in args:
+        if a == "--table":
+            table_mode = True
+        elif a.startswith("--"):
+            raise SystemExit(f"Unknown arg: {a}. Usage: milestone [ID|alias] [--table]")
+        elif detail_arg is None:
+            detail_arg = a
+        else:
+            raise SystemExit(f"Unexpected extra argument '{a}'. Usage: milestone [ID|alias] [--table]")
+    if table_mode and detail_arg is not None:
+        raise SystemExit("milestone: give either an ID/alias (detail) or --table, not both.")
+
+    lines = load()
+    registry, alias_map = parse_milestone_registry(lines)
+    sentinel = milestone_sentinel()
+    items = get_all_items(lines)
+
+    # Group case-insensitively (matching the list/next filters), but keep a stable
+    # display: registry keys are already canonical (M1); for freeform values the
+    # first spelling seen wins so `@milestone=Alpha` and `=alpha` share one bucket.
+    canon: Dict[str, str] = {}
+
+    def canon_key(item_milestone: Optional[str]) -> str:
+        key = resolve_milestone_key(item_milestone, alias_map, sentinel)
+        return canon.setdefault(key.lower(), key)
+
+    buckets: Dict[str, Dict[str, int]] = {}
+    bucket_tasks: Dict[str, List[dict]] = {}
+    for iid, item in items.items():
+        if not iid.startswith("T-"):
+            continue
+        key = canon_key(item["milestone"])
+        counts = buckets.setdefault(key, {s: 0 for s in ALLOWED_STATUS})
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
+        bucket_tasks.setdefault(key, []).append({**item, "id": iid})
+
+    if table_mode:
+        # Attribute features to milestones: a feature's own @milestone=, plus the
+        # milestone of any task under it (a top-level tagged task stands in for
+        # itself). Features with neither land in the sentinel row.
+        feat_ms: Dict[str, Set[str]] = {}
+        for iid, item in items.items():
+            if iid.startswith("F-"):
+                keys = feat_ms.setdefault(iid, set())
+                if item["milestone"] is not None:
+                    keys.add(canon_key(item["milestone"]))
+        for iid, item in items.items():
+            if iid.startswith("T-") and item["milestone"] is not None:
+                key = canon_key(item["milestone"])
+                parent = find_parent_feature(lines, item["line_num"])
+                feat_ms.setdefault(parent or iid, set()).add(key)
+
+        milestone_features: Dict[str, Set[str]] = {}
+        default_features: Set[str] = set()
+        for fid, keys in feat_ms.items():
+            if keys:
+                for k in keys:
+                    milestone_features.setdefault(k, set()).add(fid)
+            else:
+                default_features.add(fid)
+
+        display = set(milestone_features) | set(registry)
+        ordered = [k for k in _ordered_milestone_keys(display, registry, sentinel) if k != sentinel]
+        rows = []
+        for key in ordered:
+            feats = ", ".join(sort_ids(list(milestone_features.get(key, set())))) or "—"
+            status = (registry.get(key) or {}).get("status") or "—"
+            rows.append((milestone_label(key, registry, sentinel), feats, status))
+        if default_features:
+            rows.append((sentinel, ", ".join(sort_ids(list(default_features))), "—"))
+        _print_milestone_table(rows)
+        return
+
+    if detail_arg is not None:
+        key = canon_key(detail_arg)
+        header = f"MILESTONE {_milestone_header(key, registry, sentinel)}"
+        print(f"\n{header}")
+        print("=" * max(16, len(header.splitlines()[0])))
+        tasks = bucket_tasks.get(key, [])
+        if not tasks:
+            print("  (no tasks in this milestone)")
+            print()
+            return
+        for st in ("doing", "todo", "deferred", "skipped", "done"):
+            group = [t for t in tasks if t["status"] == st]
+            if not group:
+                continue
+            print(f"  {st}:")
+            for t in sorted(group, key=lambda x: (PRIO_ORDER.get(x["prio"], 9), x["id"])):
+                print(f"    {t['id']} [{t['prio']}] {t['rest']}")
+        print()
+        print("  " + _fmt_milestone_counts(buckets.get(key, {})))
+        print()
+        return
+
+    # Rollup — include registry milestones even when they carry no tasks yet.
+    display_keys = set(buckets) | set(registry)
+    ordered = _ordered_milestone_keys(display_keys, registry, sentinel)
+    print("MILESTONE ROLLUP")
+    print("=" * 16)
+    if not ordered:
+        print("  (no tasks)")
+        return
+    for key in ordered:
+        print(_milestone_header(key, registry, sentinel))
+        print("  " + _fmt_milestone_counts(buckets.get(key, {})))
+
+
+def cmd_migrate_tags_to_milestone(args: List[str] = None):
+    """Rewrite an interim `@tags=<id>` convention to first-class `@milestone=<id>`.
+
+    Projects adopting milestones before this landed tagged work with a generic
+    `@tags=m1`; the rollup won't recognize those. This one-shot helper moves that
+    label out of `@tags=` and into `@milestone=`, so no task is silently orphaned
+    from its milestone.
+
+    A task that already carries an @milestone= is handled carefully: if it
+    resolves to the SAME milestone, the redundant tag is just dropped; if it
+    differs, the task is left completely untouched and reported as a conflict —
+    never silently stripped (that would delete the very association we protect).
+    """
+    args = args or []
+    if not args or not args[0].strip():
+        raise SystemExit('usage: migrate-tags-to-milestone <tag>   (e.g. m1)')
+    tag = args[0].strip()
+
+    # Same guards as `new`/`set --milestone`: don't mint an invalid or sentinel
+    # milestone (the sentinel must never be written into a task line).
+    sentinel = milestone_sentinel()
+    if tag.lower() == sentinel.lower():
+        raise SystemExit(f"migrate-tags-to-milestone: '{tag}' is the sentinel; nothing to migrate.")
+    if not re.match(r'^[a-zA-Z0-9_-]+$', tag):
+        raise SystemExit(f"Invalid milestone '{tag}'. Use letters, digits, hyphens, underscores.")
+
+    lines = load()
+    _registry, alias_map = parse_milestone_registry(lines)
+    tag_key = resolve_milestone_key(tag, alias_map, sentinel)
+
+    changed = 0
+    conflicts: List[Tuple[str, str]] = []  # (item_id, existing @milestone= value)
+    for i, line in iter_content_lines(lines):
+        parsed = parse_item(line)
+        if not parsed:
+            continue
+        indent, box, iid, prio, status, rest = parsed
+        tags_value = _get_tag_value(rest, TAG_TAGS_RE)
+        if not tags_value:
+            continue
+        tag_list = [t for t in tags_value.split(",") if t]
+        if not any(t.lower() == tag.lower() for t in tag_list):
+            continue
+
+        existing = _get_tag_value(rest, TAG_MILESTONE_RE)
+        if existing is not None and resolve_milestone_key(existing, alias_map, sentinel).lower() != tag_key.lower():
+            # Different milestone already assigned — leave the line alone so we
+            # don't silently delete either association. Surface it instead.
+            conflicts.append((iid, existing))
+            continue
+
+        remaining = [t for t in tag_list if t.lower() != tag.lower()]
+        new_rest = _set_or_remove_tag(rest, "tags", remaining)
+        if existing is None:
+            new_rest = _set_single_tag(new_rest, "milestone", tag)
+        lines[i] = build_item_line(indent, iid, prio, status, new_rest)
+        changed += 1
+
+    if changed:
+        save(lines)
+
+    if changed == 0 and not conflicts:
+        print(f"No tasks had @tags={tag}; nothing migrated.")
+    else:
+        print(f"Migrated {changed} task(s): @tags={tag} -> @milestone={tag}")
+    for iid, existing in conflicts:
+        eprint(f"  ⚠️  skipped {iid}: keeps existing @milestone={existing} (conflicts with '{tag}'); resolve by hand.")
+
+
 def _version_tuple(v: str) -> Tuple[int, ...]:
     parts = re.findall(r'\d+', v)
     if not parts:
@@ -2370,7 +2937,7 @@ def main():
         full = "--full" in sys.argv[3:]
         cmd_show(item_id, full=full)
     elif cmd == "next":
-        cmd_next()
+        cmd_next(sys.argv[2:])
     elif cmd == "new":
         cmd_new(sys.argv[2:])
     elif cmd == "mv":
@@ -2445,6 +3012,10 @@ def main():
         cmd_now(sys.argv[2:])
     elif cmd == "nextid":
         cmd_nextid()
+    elif cmd == "milestone":
+        cmd_milestone(sys.argv[2:])
+    elif cmd == "migrate-tags-to-milestone":
+        cmd_migrate_tags_to_milestone(sys.argv[2:])
     else:
         raise SystemExit(f"Unknown command '{cmd}'. Try: ./tools/tasks.py help")
 

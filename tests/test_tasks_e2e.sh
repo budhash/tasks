@@ -889,6 +889,504 @@ out=$(run validate)
 assert_contains "Complex: final validate passes" "$out" "OK"
 
 # ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 31: Milestone AC1 — no milestone data round-trips byte-for-byte ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Legacy" --prio P1 --section Now > /dev/null
+run new task "Legacy task" --prio P0 --under F-0001 > /dev/null
+
+before=$(cksum < TASKS.md)
+# Run every read-only / milestone-aware command; none may mutate a file with no milestone data.
+run list > /dev/null
+run list --milestone default > /dev/null
+run tree > /dev/null
+run next > /dev/null
+run show F-0001 > /dev/null
+run current > /dev/null
+run nextid > /dev/null
+run backlog > /dev/null
+run now > /dev/null
+run milestone > /dev/null
+run validate > /dev/null
+after=$(cksum < TASKS.md)
+
+if [ "$before" = "$after" ]; then
+    PASS=$((PASS + 1))
+    echo -e "  ${GREEN}PASS${NC}: TASKS.md unchanged byte-for-byte (no milestone data)"
+else
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: TASKS.md mutated by milestone-aware commands (before=$before after=$after)"
+    echo -e "  ${RED}FAIL${NC}: TASKS.md mutated by milestone-aware commands"
+fi
+
+out=$(cat TASKS.md)
+assert_not_contains "No @milestone tag written implicitly" "$out" "@milestone"
+
+out=$(run list --milestone default)
+assert_contains "Unassigned task in default bucket (no registry)" "$out" "T-0001"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 32: Milestone AC2 — new --milestone + alias resolution via registry ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   Complete federal estimate
+- M2  alias=beta   status=planned  Surfaces and API
+MS
+
+run new feature "Rollup" --prio P1 --section Now > /dev/null
+out=$(run new task "Alpha task" --prio P0 --under F-0001 --milestone alpha)
+assert_contains "new --milestone accepted" "$out" "Created T-0001"
+
+out=$(cat TASKS.md)
+assert_contains "Stores value as typed (@milestone=alpha)" "$out" "@milestone=alpha"
+
+out=$(run list --milestone m1)
+assert_contains "list --milestone m1 finds alias-tagged task" "$out" "T-0001"
+
+out=$(run list --milestone alpha)
+assert_contains "list --milestone alpha finds task" "$out" "T-0001"
+
+out=$(run list --milestone m2)
+assert_not_contains "list --milestone m2 excludes M1 task" "$out" "T-0001"
+
+out=$(run show T-0001)
+assert_contains "show displays resolved milestone" "$out" "M1 (alpha)"
+
+out=$(run milestone M1)
+assert_contains "milestone M1 detail shows alias" "$out" "alpha"
+assert_contains "milestone M1 detail shows task" "$out" "T-0001"
+
+out=$(run milestone alpha)
+assert_contains "milestone <alias> detail resolves to M1" "$out" "T-0001"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 33: Milestone AC3 — unassigned task in default bucket ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Sentinel" --prio P1 --section Now > /dev/null
+run new task "No milestone" --prio P0 --under F-0001 > /dev/null
+
+out=$(run list --milestone default)
+assert_contains "Unassigned appears under default" "$out" "T-0001"
+
+out=$(run milestone)
+assert_contains "Rollup has a default bucket" "$out" "default"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 34: Milestone AC4 — set --milestone \"\" clears to sentinel ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   North star
+MS
+
+run new feature "Clearable" --prio P1 --section Now > /dev/null
+run new task "Assigned" --prio P0 --under F-0001 --milestone m1 > /dev/null
+
+out=$(run show T-0001)
+assert_contains "Task starts assigned to M1" "$out" "M1"
+
+out=$(run set T-0001 --milestone "")
+assert_contains "set --milestone empty clears" "$out" "T-0001"
+
+out=$(cat TASKS.md)
+assert_not_contains "Milestone tag removed after clear" "$out" "@milestone"
+
+out=$(run list --milestone default)
+assert_contains "Cleared task back in default bucket" "$out" "T-0001"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 35: Milestone AC5 — rollup sums across id+alias, includes default ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   North star
+MS
+
+run new feature "Counts" --prio P1 --section Now > /dev/null
+run new task "By id" --prio P0 --under F-0001 --milestone m1 > /dev/null
+run new task "By alias" --prio P1 --under F-0001 --milestone alpha > /dev/null
+run new task "Unassigned" --prio P2 --under F-0001 > /dev/null
+
+run start T-0001 > /dev/null
+run done T-0001 > /dev/null
+
+out=$(run milestone)
+assert_contains "Rollup shows M1" "$out" "M1"
+assert_contains "M1 sums id+alias to 2 tasks" "$out" "2 tasks"
+assert_contains "M1 is 50% done" "$out" "50% done"
+assert_contains "Rollup includes default bucket" "$out" "default"
+assert_contains "default has 1 task" "$out" "1 task"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 36: Milestone AC6 — no registry, freeform grouped by raw value ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Freeform" --prio P1 --section Now > /dev/null
+run new task "X work" --prio P0 --under F-0001 --milestone sprint-x > /dev/null
+run new task "Y work" --prio P1 --under F-0001 --milestone sprint-y > /dev/null
+
+out=$(run milestone)
+assert_contains "Freeform bucket sprint-x" "$out" "sprint-x"
+assert_contains "Freeform bucket sprint-y" "$out" "sprint-y"
+
+out=$(run list --milestone sprint-x)
+assert_contains "Freeform filter matches x task" "$out" "T-0001"
+assert_not_contains "Freeform filter excludes y task" "$out" "T-0002"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 37: Milestone AC7 — validate warns (exit 0) on unknown milestone ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   North star
+MS
+
+run new feature "Validated" --prio P1 --section Now > /dev/null
+run new task "Known" --prio P0 --under F-0001 --milestone m1 > /dev/null
+run new task "Unknown" --prio P1 --under F-0001 --milestone zzz > /dev/null
+
+set +e
+out=$(run validate 2>&1)
+rc=$?
+set -e
+
+assert_contains "Validate warns on unknown milestone" "$out" "unknown milestone"
+assert_contains "Validate still passes (structural OK)" "$out" "OK: TASKS.md validation passed"
+assert_not_contains "Known milestone not flagged" "$out" "unknown milestone 'm1'"
+
+if [ "$rc" -eq 0 ]; then
+    PASS=$((PASS + 1))
+    echo -e "  ${GREEN}PASS${NC}: Unknown milestone is a warning, not an error (exit 0)"
+else
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: validate exited $rc on unknown milestone (want 0)"
+    echo -e "  ${RED}FAIL${NC}: validate exited $rc on unknown milestone (want 0)"
+fi
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 38: migrate-tags-to-milestone helper ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Interim" --prio P1 --section Now > /dev/null
+run new task "Interim task" --prio P0 --under F-0001 --tags m1,security > /dev/null
+
+out=$(run migrate-tags-to-milestone m1)
+assert_contains "Migrate reports converted task" "$out" "Migrated 1"
+
+out=$(cat TASKS.md)
+assert_contains "Milestone tag added" "$out" "@milestone=m1"
+assert_contains "Non-milestone tag preserved" "$out" "@tags=security"
+
+out=$(run list --milestone m1)
+assert_contains "Migrated task now in m1 bucket" "$out" "T-0001"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 39: sentinel guard + next --milestone ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   North star
+- M2  alias=beta   status=planned  Later
+MS
+
+# A sentinel that collides with the M<n> ID pattern must be rejected.
+out=$(TASKS_MILESTONE_SENTINEL=m1 python3 "$TASKS_PY" milestone 2>&1 || true)
+assert_contains "Rejects sentinel matching M<n>" "$out" "must not match"
+
+run new feature "NextMS" --prio P1 --section Now > /dev/null
+run new task "M2 urgent" --prio P0 --under F-0001 --milestone m2 > /dev/null
+run new task "M1 later" --prio P1 --under F-0001 --milestone m1 > /dev/null
+
+out=$(run next)
+assert_contains "Plain next picks highest prio (M2 task)" "$out" "T-0001"
+
+out=$(run next --milestone m1)
+assert_contains "next --milestone m1 picks the M1 task" "$out" "T-0002"
+assert_not_contains "next --milestone m1 skips M2 task" "$out" "Next task: T-0001"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 40: milestone on existing features + milestone --table report ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   Federal estimate
+- M2  alias=beta   status=planned  Surfaces and API
+MS
+
+# Two existing features created WITHOUT a milestone, then assigned after the fact.
+run new feature "Estimator core" --prio P0 --section Now > /dev/null
+run new feature "API surface" --prio P1 --section Now > /dev/null
+run new feature "Housekeeping" --prio P2 --section Backlog > /dev/null
+run new task "Compute engine" --prio P0 --under F-0002 > /dev/null
+
+# Assign a milestone to an already-existing feature.
+out=$(run set F-0001 --milestone m1)
+assert_contains "set --milestone works on an existing feature" "$out" "F-0001"
+
+out=$(run list --milestone m1)
+assert_contains "Feature listed under its milestone" "$out" "F-0001"
+
+# Attribute F-0002 to M2 indirectly, via a task under it.
+run set T-0001 --milestone m2 > /dev/null
+
+out=$(run milestone --table)
+assert_contains "Table header" "$out" "MILESTONE"
+assert_contains "Table has FEATURES column" "$out" "FEATURES"
+assert_contains "Table has STATUS column" "$out" "STATUS"
+assert_contains "M1 row lists directly-tagged feature" "$out" "F-0001"
+assert_contains "M1 shows registry status" "$out" "active"
+assert_contains "M2 row lists feature via its tagged task" "$out" "F-0002"
+assert_contains "M2 shows registry status" "$out" "planned"
+assert_contains "Untagged feature falls into default row" "$out" "F-0003"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 41: set --milestone clears via 'default' and 'clear' (no tag written) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   North star
+MS
+
+run new feature "Clear tokens" --prio P1 --section Now > /dev/null
+run new task "By default word" --prio P0 --under F-0001 --milestone m1 > /dev/null
+run new task "By clear word" --prio P1 --under F-0001 --milestone m1 > /dev/null
+
+out=$(run set T-0001 --milestone default)
+assert_contains "set --milestone default reports clear" "$out" "Cleared @milestone"
+out=$(run set T-0002 --milestone clear)
+assert_contains "set --milestone clear reports clear" "$out" "Cleared @milestone"
+
+out=$(cat TASKS.md)
+assert_not_contains "Sentinel is never written into a task line" "$out" "@milestone"
+
+out=$(run list --milestone default)
+assert_contains "Both cleared tasks back in default (T-0001)" "$out" "T-0001"
+assert_contains "Both cleared tasks back in default (T-0002)" "$out" "T-0002"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 42: validate does NOT warn on milestones when there is no registry ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Freeform" --prio P1 --section Now > /dev/null
+run new task "Freeform task" --prio P0 --under F-0001 --milestone anything-goes > /dev/null
+
+set +e
+out=$(run validate 2>&1)
+rc=$?
+set -e
+
+assert_not_contains "No unknown-milestone warning without a registry" "$out" "unknown milestone"
+assert_contains "Freeform milestone still validates OK" "$out" "OK: TASKS.md validation passed"
+if [ "$rc" -eq 0 ]; then
+    PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: validate exits 0 in freeform mode"
+else
+    FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  FAIL: validate exited $rc in freeform mode (want 0)"
+    echo -e "  ${RED}FAIL${NC}: validate exited $rc in freeform mode (want 0)"
+fi
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 43: migrate removes @tags entirely when the milestone was its only tag ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Solo tag" --prio P1 --section Now > /dev/null
+run new task "Only m1" --prio P0 --under F-0001 --tags m1 > /dev/null
+
+out=$(run migrate-tags-to-milestone m1)
+assert_contains "Migrate reports 1 task" "$out" "Migrated 1"
+
+# Scope to the task line — the init template's schema example also contains @tags=.
+out=$(grep "(T-0001)" TASKS.md)
+assert_contains "Milestone tag written" "$out" "@milestone=m1"
+assert_not_contains "Empty @tags= not left behind on the task line" "$out" "@tags"
+
+# Nothing-matched path is distinct from success
+out=$(run migrate-tags-to-milestone doesnotexist)
+assert_contains "0-match migrate is a distinct message" "$out" "nothing migrated"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 44: migrate preserves a conflicting @milestone= and reports it (no data loss) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   One
+- M2  alias=beta   status=planned  Two
+MS
+
+run new feature "Conflict" --prio P1 --section Now > /dev/null
+run new task "Tagged m1 but milestoned m2" --prio P0 --under F-0001 --tags m1,keep --milestone m2 > /dev/null
+
+out=$(run migrate-tags-to-milestone m1)
+assert_contains "Conflict is reported to the user" "$out" "skipped T-0001"
+assert_contains "Conflict is not counted as migrated" "$out" "Migrated 0"
+
+out=$(cat TASKS.md)
+assert_contains "Existing @milestone=m2 preserved" "$out" "@milestone=m2"
+assert_contains "Interim @tags=m1 left intact (not silently dropped)" "$out" "m1,keep"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 45: rollup shows zero-task registry milestones; alias case-insensitive; assign warns ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   Has work
+- M2  alias=beta   status=planned  No work yet
+MS
+
+run new feature "Rollup zero" --prio P1 --section Now > /dev/null
+run new task "Only M1 work" --prio P0 --under F-0001 --milestone m1 > /dev/null
+
+out=$(run milestone)
+assert_contains "Rollup includes M1" "$out" "M1 (alpha)"
+assert_contains "Rollup includes registry milestone with no tasks (M2)" "$out" "M2 (beta)"
+
+# Alias case-insensitivity (spec: case-insensitive on both id and alias)
+out=$(run milestone ALPHA)
+assert_contains "Detail resolves uppercase alias ALPHA -> M1" "$out" "MILESTONE M1"
+assert_contains "Uppercase-alias detail lists the task" "$out" "T-0001"
+
+# Assignment-time nudge for a value absent from the registry (still assigned)
+out=$(run set T-0001 --milestone m11)
+assert_contains "Unknown milestone warns at assignment time" "$out" "not in the # Milestones registry"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 46: milestone --table pins features to the correct milestone row ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   One
+- M2  alias=beta   status=planned  Two
+MS
+
+run new feature "Direct M1" --prio P0 --section Now > /dev/null
+run new feature "Via task M2" --prio P1 --section Now > /dev/null
+run new feature "Unassigned" --prio P2 --section Backlog > /dev/null
+run new task "engine" --prio P0 --under F-0002 --milestone m2 > /dev/null
+run set F-0001 --milestone m1 > /dev/null
+
+out=$(run milestone --table)
+
+# Row-association (not mere token presence): the feature must be on the right row.
+assert_row() {
+    local label="$1" output="$2" rowkey="$3" needle="$4"
+    if echo "$output" | grep -F "$rowkey" | grep -qF "$needle"; then
+        PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: $label"
+    else
+        FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  FAIL: $label ('$rowkey' row lacks '$needle')"
+        echo -e "  ${RED}FAIL${NC}: $label"
+    fi
+}
+assert_row "F-0001 on the M1 row" "$out" "M1 (alpha)" "F-0001"
+assert_row "F-0002 on the M2 row (via its task)" "$out" "M2 (beta)" "F-0002"
+assert_row "F-0003 on the default row" "$out" "default" "F-0003"
+
+# Misattribution guard: F-0002 must NOT appear on the M1 row.
+if echo "$out" | grep -F "M1 (alpha)" | grep -qF "F-0002"; then
+    FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  FAIL: F-0002 misattributed to M1 row"
+    echo -e "  ${RED}FAIL${NC}: F-0002 misattributed to M1 row"
+else
+    PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: F-0002 not on the M1 row"
+fi
+
+out=$(run list --milestone ALPHA)
+assert_contains "list resolves uppercase alias ALPHA -> M1 feature" "$out" "F-0001"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 47: validate warns on registry-health problems (dup id, alias collision) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   First
+- M1  alias=gamma  status=planned  Duplicate id
+- M2  alias=alpha  status=planned  Alias collides with M1
+MS
+
+run new feature "Reg health" --prio P1 --section Now > /dev/null
+
+set +e
+out=$(run validate 2>&1)
+rc=$?
+set -e
+
+assert_contains "Warns on duplicate milestone id" "$out" "duplicate milestone id M1"
+assert_contains "Warns on colliding alias" "$out" "alias 'alpha' already used"
+assert_contains "Registry-health issues are warnings, still OK" "$out" "OK: TASKS.md validation passed"
+if [ "$rc" -eq 0 ]; then
+    PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: registry-health problems are warnings (exit 0)"
+else
+    FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  FAIL: validate exited $rc on registry-health warnings (want 0)"
+    echo -e "  ${RED}FAIL${NC}: validate exited $rc on registry-health warnings (want 0)"
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo -e "\n${YELLOW}======================================${NC}"
