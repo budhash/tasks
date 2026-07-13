@@ -4,6 +4,16 @@ All notable changes to `tasks`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [1.2.0] — 2026-07-13
+
+### Added
+- `set ID --title "New title"` — replace an item's descriptive title in place,
+  preserving its ID, status, priority, and all trailing machine tags (#18; the
+  retitle half of #11). Applies to the primary line and any `@shadow` copies.
+  Titles that would *end* with a tag-shaped token (e.g. `... @milestone=m1`) are
+  rejected, since on re-parse that token would merge into the machine-tag
+  region; tag-lookalikes elsewhere in the title stay prose, per the #9 rules.
+
 ## [1.1.2] — 2026-07-13
 
 ### Fixed
