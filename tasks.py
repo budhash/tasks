@@ -148,6 +148,7 @@ Commands
   set ID --effort HOURS              Set @effort= (e.g., 4h, 8h)
   set ID --system TAG                Set @system= (sprint-*, milestone-*, phase-*, epic-*)
   set ID --milestone ID              Set @milestone= (id/alias; "", "clear", or sentinel name clears)
+  set ID --title "New title"         Replace the descriptive title (ID/status/tags preserved)
   milestone [ID] [--table]           Milestone rollup; `milestone ID` for detail; `--table` for a
                                        milestone x features x status table
   migrate-tags-to-milestone TAG      Rewrite interim @tags=TAG into @milestone=TAG
@@ -190,7 +191,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Iterator
 
-__version__ = "1.1.2"
+__version__ = "1.2.0"
 
 # Canonical source for `selfupdate` — the published raw URL. `selfupdate`
 # overwrites this very script with the fetched content, so a NON-default source
@@ -1429,6 +1430,26 @@ def set_tag(item_id: str, tag: str, value: str) -> None:
     print(f"Set @{tag}={value} on {item_id}")
 
 
+def retitle_item(item_id: str, new_title: str) -> None:
+    """Replace an item's descriptive title, preserving its trailing machine tags."""
+    item_id = normalize_id(item_id)
+    lines = load()
+
+    idxs = find_all_item_lines(lines, item_id)
+    if not idxs:
+        raise SystemExit(f"Item {item_id} not found")
+
+    for i in idxs:  # primary + shadow copies stay in sync
+        parsed = parse_item(lines[i])
+        assert parsed is not None
+        indent, box, iid, prio, status, rest = parsed
+        _old_title, tag_tokens = split_item_tags(rest)
+        lines[i] = build_item_line(indent, iid, prio, status, _join_title_tags(new_title, tag_tokens))
+
+    save(lines)
+    print(f"Retitled {item_id}: {new_title}")
+
+
 # -------------------------
 # Commands
 # -------------------------
@@ -2334,7 +2355,7 @@ def cmd_link(args: List[str]):
 
 def cmd_set(args: List[str]):
     if len(args) < 3:
-        raise SystemExit("usage: set ID --branch NAME | --pr NUMBER | --issue NUMBER | --tags TAG1,TAG2 | --effort HOURS")
+        raise SystemExit("usage: set ID --branch NAME | --pr NUMBER | --issue NUMBER | --tags TAG1,TAG2 | --effort HOURS | --system TAG | --milestone ID | --title \"New title\"")
 
     item_id = args[0]
     flag = args[1]
@@ -2416,8 +2437,20 @@ def cmd_set(args: List[str]):
             raise SystemExit(f"Invalid milestone '{value}'. Use letters, digits, hyphens, underscores.")
         set_tag(item_id, "milestone", value)
         _warn_unknown_milestone(value)
+    elif flag == "--title":
+        new_title = value.strip()
+        if not new_title:
+            raise SystemExit("--title requires a non-empty title")
+        # A trailing tag-shaped token would merge into the machine-tag region on
+        # re-parse, silently becoming a real tag — reject rather than surprise.
+        last_tok = new_title.split()[-1]
+        if _is_tag_token(last_tok):
+            raise SystemExit(
+                f"Title must not end with a machine-tag token ('{last_tok}'). "
+                f"Rephrase it, or set the tag explicitly (e.g. set ID --milestone ...).")
+        retitle_item(item_id, new_title)
     else:
-        raise SystemExit(f"Unknown flag: {flag}. Use --branch, --pr, --issue, --tags, --effort, --system, or --milestone")
+        raise SystemExit(f"Unknown flag: {flag}. Use --branch, --pr, --issue, --tags, --effort, --system, --milestone, or --title")
 
 
 def cmd_current():

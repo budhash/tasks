@@ -1487,6 +1487,48 @@ out=$(run validate)
 assert_contains "Validate passes after synced edits" "$out" "OK"
 
 # ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 50: set --title retitles an item, preserving tags (issue #18) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Old feature name" --prio P1 --section Backlog > /dev/null
+run new task "Old task name" --prio P0 --under F-0001 --effort 4h --tags security,mvp > /dev/null
+
+out=$(run set T-0001 --title "Reframed task name")
+assert_contains "Retitle reports success" "$out" "Retitled T-0001"
+
+out=$(run show T-0001)
+assert_contains "New title present" "$out" "Reframed task name"
+assert_not_contains "Old title gone" "$out" "Old task name"
+assert_contains "Effort preserved through retitle" "$out" "Effort: 4h"
+assert_contains "Tags preserved through retitle" "$out" "Tags: security,mvp"
+
+# Retitle a shadowed feature: primary + shadow copies both get the new title.
+run start T-0001 > /dev/null
+run set F-0001 --title "Reframed feature name" > /dev/null
+primary=$(grep "(F-0001).*Reframed feature name" TASKS.md | grep -v "@shadow")
+shadow=$(grep "(F-0001).*Reframed feature name" TASKS.md | grep "@shadow")
+assert_contains "Primary line retitled" "$primary" "Reframed feature name"
+assert_contains "Shadow copy retitled in sync" "$shadow" "@shadow"
+
+# Guards.
+out=$(run set T-0001 --title "" 2>&1 || true)
+assert_contains "Empty title rejected" "$out" "non-empty"
+
+out=$(run set T-0001 --title "ends with a tag token @milestone=m1" 2>&1 || true)
+assert_contains "Title ending in a tag-shaped token rejected" "$out" "must not end with a machine-tag token"
+
+# Prose tag-lookalike in the MIDDLE of a title is fine (per #9 semantics).
+out=$(run set T-0001 --title "migrate @tags=x to @milestone=x everywhere")
+assert_contains "Mid-title tag-lookalike accepted" "$out" "Retitled T-0001"
+out=$(run milestone)
+assert_not_contains "Mid-title lookalike creates no phantom bucket" "$out" "  x"
+
+out=$(run validate)
+assert_contains "Validate passes after retitles" "$out" "OK"
+
+# ============================================================
 # Summary
 # ============================================================
 echo -e "\n${YELLOW}======================================${NC}"
