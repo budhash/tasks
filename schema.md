@@ -62,6 +62,8 @@ When a task is skipped/scattered into a section its parent feature isn't in,
 `tasks` leaves a lightweight copy of the parent feature line tagged `@shadow` in
 that section, so the hierarchy stays readable across sections. Shadows are
 created and cleaned up automatically — treat them as derived; don't hand-edit.
+Field edits (`set`/`prio`/`link`/status verbs) apply to the primary line **and**
+all shadow copies, keeping them in sync.
 
 ## Milestones (optional, opt-in)
 
