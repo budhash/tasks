@@ -96,7 +96,8 @@ Highlights:
 | `start \| done \| skip \| defer \| reopen ID` | Status transitions (`start` enforces a single active task) |
 | `tree` / `list [filters]` / `show ID [--full]` | Views |
 | `next` | Next actionable task (highest prio, unblocked, in `Now`) |
-| `mv` / `set` / `link` | Move sections, set fields, edit deps/relations |
+| `mv` / `set` / `link` | Move sections, set fields (incl. `--title`), edit deps/relations |
+| `renumber OLD (NEW \| --next)` | Reassign an ID; repoints `@deps`/`@rel` + notes header (`--refs` reports repo mentions) |
 | `milestone [ID]` | Per-milestone rollup, or one milestone's detail (`--table` for a milestone×features view) |
 | `migrate-tags-to-milestone TAG` | Rewrite an interim `@tags=TAG` into `@milestone=TAG` |
 | `sync ID` | Reconcile a task with its linked GitHub issue (`@issue=`; needs the `gh` CLI) |

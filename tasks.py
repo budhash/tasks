@@ -149,6 +149,10 @@ Commands
   set ID --system TAG                Set @system= (sprint-*, milestone-*, phase-*, epic-*)
   set ID --milestone ID              Set @milestone= (id/alias; "", "clear", or sentinel name clears)
   set ID --title "New title"         Replace the descriptive title (ID/status/tags preserved)
+  renumber OLD (NEW | --next) [--refs]
+                                     Reassign an item's ID: renames the line (+ shadows),
+                                       repoints @deps/@rel and the # Notes header. --refs
+                                       reports remaining repo mentions (read-only)
   milestone [ID] [--table]           Milestone rollup; `milestone ID` for detail; `--table` for a
                                        milestone x features x status table
   migrate-tags-to-milestone TAG      Rewrite interim @tags=TAG into @milestone=TAG
@@ -191,7 +195,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Iterator
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # Canonical source for `selfupdate` — the published raw URL. `selfupdate`
 # overwrites this very script with the fetched content, so a NON-default source
@@ -2868,6 +2872,160 @@ def cmd_migrate_tags_to_milestone(args: List[str] = None):
         eprint(f"  ⚠️  skipped {iid}: keeps existing @milestone={existing} (conflicts with '{tag}'); resolve by hand.")
 
 
+def _report_external_refs(old_id: str) -> None:
+    """Read-only scan of git-tracked files for remaining mentions of old_id.
+
+    Matches the canonical form AND short forms (T-12 for T-0012) without
+    matching longer numbers (T-00123). Never modifies any file — repointing
+    external references is the operator's job (see #12 design). Outside a git
+    repo, prints a skip note instead of failing.
+    """
+    try:
+        result = subprocess.run(["git", "ls-files", "-z"], capture_output=True, text=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        eprint("--refs: skipped (not a git repository, or git unavailable)")
+        return
+
+    kind, num_str = old_id.split("-")
+    pat = re.compile(rf'\b{kind}-0*{int(num_str)}\b')
+    hits: List[str] = []
+    for fname in result.stdout.split("\0"):
+        if not fname:
+            continue
+        try:
+            text = Path(fname).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue  # binary/unreadable files are not reference sources
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if pat.search(line):
+                hits.append(f"  {fname}:{lineno}: {line.strip()[:120]}")
+
+    if hits:
+        print(f"--refs: {len(hits)} remaining mention(s) of {old_id} (not modified):")
+        for h in hits:
+            print(h)
+        print(f"  Repoint these by hand (or via your agent), then re-run with --refs to confirm.")
+    else:
+        print(f"--refs: no remaining mentions of {old_id} in tracked files.")
+
+
+def cmd_renumber(args: List[str]):
+    """Reassign an item's ID and repoint structured references inside TASKS.md.
+
+    In-file: renames the primary line and all @shadow copies, repoints every
+    @deps=/@rel= list containing the old ID, and renames the `## <OLD>` header
+    in # Notes. Prose mentions (titles, note bodies) are never rewritten —
+    `--refs` reports them (and any repo-wide mentions) read-only instead.
+    """
+    usage = 'usage: renumber OLD (NEW | --next) [--refs]'
+    if not args:
+        raise SystemExit(usage)
+
+    old_raw = args[0]
+    new_raw = None
+    use_next = False
+    report_refs = False
+    for a in args[1:]:
+        if a == "--next":
+            use_next = True
+        elif a == "--refs":
+            report_refs = True
+        elif a.startswith("--"):
+            raise SystemExit(f"Unknown arg: {a}. {usage}")
+        elif new_raw is None:
+            new_raw = a
+        else:
+            raise SystemExit(f"Unexpected extra argument '{a}'. {usage}")
+
+    if use_next and new_raw is not None:
+        raise SystemExit("renumber: give either NEW or --next, not both.")
+    if not use_next and new_raw is None:
+        raise SystemExit(usage)
+
+    old_id = normalize_id(old_raw)
+    lines = load()
+
+    old_idxs = find_all_item_lines(lines, old_id)
+    if not old_idxs:
+        raise SystemExit(f"Item {old_id} not found")
+
+    kind = old_id.split("-")[0]
+    if use_next:
+        new_id = next_id(lines, kind)
+    else:
+        new_id = normalize_id(new_raw)
+        if new_id.split("-")[0] != kind:
+            raise SystemExit(f"Cannot renumber {old_id} to {new_id}: kind must match ({kind}- stays {kind}-).")
+        if new_id == old_id:
+            raise SystemExit(f"renumber: {old_id} and {new_id} are the same id.")
+        if find_all_item_lines(lines, new_id):
+            raise SystemExit(f"{new_id} already exists; pick a free id or use: renumber {old_id} --next")
+
+    # 1. Rename the item's own lines (primary first, then shadows).
+    shadows = 0
+    for i in old_idxs:
+        parsed = parse_item(lines[i])
+        assert parsed is not None
+        indent, box, iid, prio, status, rest = parsed
+        if is_shadow(lines[i]):
+            shadows += 1
+        lines[i] = build_item_line(indent, new_id, prio, status, rest)
+
+    # 2. Repoint @deps=/@rel= lists on every other item (tag region only —
+    #    prose mentions in titles stay untouched, per the #9 parsing rules).
+    deps_repointed = 0
+    rel_repointed = 0
+    for i, line in iter_content_lines(lines):
+        parsed = parse_item(line)
+        if not parsed:
+            continue
+        indent, box, iid, prio, status, rest = parsed
+        new_rest = rest
+        cur_deps = parse_id_list(_get_tag_value(rest, TAG_DEPS_RE) or "")
+        if old_id in cur_deps:
+            new_rest = _set_or_remove_tag(new_rest, "deps",
+                                          sort_ids([new_id if x == old_id else x for x in cur_deps]))
+            deps_repointed += 1
+        cur_rel = parse_id_list(_get_tag_value(new_rest, TAG_REL_RE) or "")
+        if old_id in cur_rel:
+            new_rest = _set_or_remove_tag(new_rest, "rel",
+                                          sort_ids([new_id if x == old_id else x for x in cur_rel]))
+            rel_repointed += 1
+        if new_rest != rest:
+            lines[i] = build_item_line(indent, iid, prio, status, new_rest)
+
+    # 3. Rename the `## <OLD>` notes header inside # Notes.
+    notes_renamed = False
+    notes_start = None
+    notes_end = len(lines)
+    for i, line in enumerate(lines):
+        if line.rstrip() == NOTES_HEADER:
+            notes_start = i
+        elif notes_start is not None and line.startswith("# "):
+            notes_end = i
+            break
+    if notes_start is not None:
+        for i in range(notes_start + 1, notes_end):
+            if lines[i].rstrip() == f"## {old_id}":
+                lines[i] = lines[i].replace(f"## {old_id}", f"## {new_id}", 1)
+                notes_renamed = True
+                break
+
+    save(lines)
+    print(f"Renumbered {old_id} -> {new_id}")
+    detail = [f"{len(old_idxs) - shadows} primary line" + (f" + {shadows} shadow(s)" if shadows else "")]
+    if deps_repointed:
+        detail.append(f"{deps_repointed} @deps repointed")
+    if rel_repointed:
+        detail.append(f"{rel_repointed} @rel repointed")
+    if notes_renamed:
+        detail.append("notes header renamed")
+    print("  " + ", ".join(detail))
+
+    if report_refs:
+        _report_external_refs(old_id)
+
+
 def _version_tuple(v: str) -> Tuple[int, ...]:
     parts = re.findall(r'\d+', v)
     if not parts:
@@ -3089,6 +3247,8 @@ def main():
         cmd_milestone(sys.argv[2:])
     elif cmd == "migrate-tags-to-milestone":
         cmd_migrate_tags_to_milestone(sys.argv[2:])
+    elif cmd == "renumber":
+        cmd_renumber(sys.argv[2:])
     else:
         raise SystemExit(f"Unknown command '{cmd}'. Try: ./tools/tasks.py help")
 

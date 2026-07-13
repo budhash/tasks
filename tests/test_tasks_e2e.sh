@@ -1529,6 +1529,108 @@ out=$(run validate)
 assert_contains "Validate passes after retitles" "$out" "OK"
 
 # ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 51: renumber — rename ID, repoint deps/rel/notes, guards (issue #12) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Renumber home" --prio P1 --section Now > /dev/null
+run new task "Base task" --prio P0 --under F-0001 > /dev/null
+run new task "Depends on base" --prio P1 --under F-0001 --deps T-0001 > /dev/null
+run new task "Related to base" --prio P2 --under F-0001 > /dev/null
+run link T-0003 --rel add T-0001 > /dev/null
+
+cat >> TASKS.md << 'NOTES'
+
+## T-0001
+Design note that must follow the task through a renumber.
+NOTES
+
+out=$(run renumber T-0001 T-0010)
+assert_contains "Renumber reports the move" "$out" "Renumbered T-0001 -> T-0010"
+
+out=$(run show T-0010)
+assert_contains "Item lives at the new id" "$out" "Base task"
+out=$(run show T-0001 2>&1 || true)
+assert_contains "Old id is gone" "$out" "not found"
+
+out=$(grep "(T-0002)" TASKS.md)
+assert_contains "@deps repointed to the new id" "$out" "@deps=T-0010"
+out=$(grep "(T-0003)" TASKS.md)
+assert_contains "@rel repointed to the new id" "$out" "@rel=T-0010"
+
+out=$(run show T-0010 --full)
+assert_contains "Notes followed the renumber" "$out" "must follow the task"
+
+out=$(run validate)
+assert_contains "Validate passes after renumber" "$out" "OK"
+
+# Guards.
+out=$(run renumber T-0010 T-0002 2>&1 || true)
+assert_contains "Refuses an occupied target" "$out" "already exists"
+out=$(run renumber T-0010 F-0009 2>&1 || true)
+assert_contains "Refuses cross-kind renumber" "$out" "kind must match"
+out=$(run renumber T-0999 T-0998 2>&1 || true)
+assert_contains "Refuses a missing source" "$out" "not found"
+out=$(run renumber T-0010 T-0010 2>&1 || true)
+assert_contains "Refuses a no-op renumber" "$out" "same id"
+out=$(run renumber T-0010 T-0011 --next 2>&1 || true)
+assert_contains "Refuses NEW plus --next together" "$out" "not both"
+
+# --next picks the next free id of the same kind (max is T-0010 -> T-0011).
+out=$(run renumber T-0010 --next)
+assert_contains "--next moves to the next free id" "$out" "Renumbered T-0010 -> T-0011"
+out=$(grep "(T-0002)" TASKS.md)
+assert_contains "@deps follows the --next renumber too" "$out" "@deps=T-0011"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 52: renumber — feature shadows + --refs read-only report ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+run new feature "Shadowed renumber" --prio P1 --section Backlog > /dev/null
+run new task "Child" --prio P0 --under F-0001 > /dev/null
+run start T-0001 > /dev/null   # creates @shadow of F-0001 in Now
+
+out=$(run renumber F-0001 F-0010)
+assert_contains "Feature renumber reports the move" "$out" "Renumbered F-0001 -> F-0010"
+
+new_count=$(grep -c "(F-0010).*Shadowed renumber" TASKS.md || true)
+old_count=$(grep -c "(F-0001).*Shadowed renumber" TASKS.md || true)
+if [ "$new_count" -eq 2 ] && [ "$old_count" -eq 0 ]; then
+    PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: primary + shadow both renamed (2 lines at F-0010, 0 at F-0001)"
+else
+    FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  FAIL: shadow rename (new=$new_count old=$old_count)"
+    echo -e "  ${RED}FAIL${NC}: primary + shadow both renamed (new=$new_count old=$old_count)"
+fi
+
+out=$(run validate)
+assert_contains "Validate passes after feature renumber" "$out" "OK"
+
+# --refs outside a git repo: skipped, not an error.
+out=$(run renumber T-0001 T-0005 --refs 2>&1)
+assert_contains "--refs skips gracefully outside git" "$out" "skipped"
+
+# --refs inside a git repo: reports remaining mentions read-only.
+git init -q .
+mkdir -p docs
+cat > docs/ref.md << 'DOC'
+The estimator work is tracked as T-0005 (formerly T-5 in shorthand).
+DOC
+git add docs/ref.md TASKS.md
+before=$(cksum < docs/ref.md)
+out=$(run renumber T-0005 T-0007 --refs 2>&1)
+assert_contains "--refs lists the referencing file" "$out" "docs/ref.md:1"
+after=$(cksum < docs/ref.md)
+if [ "$before" = "$after" ]; then
+    PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: --refs is read-only (ref.md unchanged)"
+else
+    FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  FAIL: --refs modified docs/ref.md"
+    echo -e "  ${RED}FAIL${NC}: --refs is read-only (ref.md unchanged)"
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo -e "\n${YELLOW}======================================${NC}"
