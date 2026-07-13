@@ -3,6 +3,26 @@
 Insights, gotchas, and decisions worth remembering — newest first. For *what*
 changed see `CHANGELOG.md`; this file records *why* and what it taught us.
 
+## 2026-07-13 — v1.3.0 (`renumber`)
+
+- **Mutate structure, report prose.** The renumber design's key call (made
+  explicitly with the user): the tool rewrites only *structured* references it
+  can identify positionally (`@deps`/`@rel` tag regions, the `## <ID>` notes
+  header, shadow lines) and merely *reports* free-text mentions (`--refs`,
+  read-only, repo-wide). Auto-rewriting prose is the #9 false-positive class
+  in write form; leaving it to the operator keeps the tool trustworthy. This
+  "detect, don't rewrite" split is the template for #14 (`validate --refs`).
+- **Design decisions made in chat evaporate; specs in-repo don't.** The
+  renumber design sat approved-but-unwritten for ten days across sessions.
+  Committing `docs/superpowers/specs/…-renumber-design.md` with the PR means
+  the *why* (no `--force`, refuse-occupied, `--next`) survives the
+  conversation that produced it.
+- **Short-form IDs are part of the reference surface.** Hand-written
+  `@deps=T-12` and prose `T-12` both mean `T-0012`. The repoint path gets this
+  free (parse_id_list normalizes), but the `--refs` scanner needed an explicit
+  `\bT-0*12\b` pattern — matching short forms without swallowing `T-00123`.
+  Any future reference-scanning feature (#14) must handle both forms too.
+
 ## 2026-07-13 — v1.1.2 / v1.2.0 (shadow-sync fix, `set --title`)
 
 - **"First match in file order" is a bug class, not a bug.** `set_tag`,
