@@ -4,6 +4,18 @@ All notable changes to `tasks`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [1.1.2] — 2026-07-13
+
+### Fixed
+- Field edits landed on the first line carrying an ID in file order — which for
+  a feature with a `@shadow` copy can be the shadow, not the canonical line.
+  `set F-N --milestone m1` on such a feature tagged only the shadow, so the
+  feature showed up in both its milestone and the `default` bucket (#17). The
+  same first-match bug affected `set` (all tags), `link --deps/--rel`, `prio`,
+  and the status verbs. All of these now apply to the primary line **and** every
+  shadow copy, keeping the derived copies in sync — consistent with how shadows
+  are created (copied from the primary, tags included).
+
 ## [1.1.1] — 2026-07-01
 
 ### Fixed

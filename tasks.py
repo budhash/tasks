@@ -79,6 +79,8 @@ their section while preserving Feature grouping.
   - `tree` and `show F-N` display a merged view with [Section] labels
   - `backlog F-N` / `now F-N` collapses all shadows back into one section
   - Empty shadows are auto-cleaned after moves
+  - Field edits (set/prio/link/status verbs) apply to the primary line AND all
+    shadow copies, keeping them in sync
   - `validate` warns about empty shadows and errors on orphaned shadows
 
 Milestones (optional, opt-in)
@@ -188,7 +190,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Iterator
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 # Canonical source for `selfupdate` — the published raw URL. `selfupdate`
 # overwrites this very script with the fetched content, so a NON-default source
@@ -1342,76 +1344,89 @@ def _set_single_tag(rest: str, tag: str, value: Optional[str]) -> str:
     return _join_title_tags(title, tag_tokens)
 
 
+def find_all_item_lines(lines: List[str], item_id: str) -> List[int]:
+    """All line indices carrying item_id — primary line first, then shadows.
+
+    Shadow lines are derived copies of the primary (see Shadow Features), so
+    field edits (tags, priority, status, links) must be applied to every copy
+    to keep them in sync — editing only the first match in file order can land
+    on a shadow and leave the canonical line untouched (#17).
+    """
+    primary: List[int] = []
+    shadows: List[int] = []
+    for i, line in iter_content_lines(lines):
+        p = parse_item(line)
+        if p and p[2] == item_id:
+            (shadows if is_shadow(line) else primary).append(i)
+    return primary + shadows
+
+
 def edit_links(item_id: str,
                deps_op: Optional[str] = None, deps_list: Optional[str] = None,
                rel_op: Optional[str] = None, rel_list: Optional[str] = None) -> None:
     item_id = normalize_id(item_id)
     lines = load()
 
-    for i, line in iter_content_lines(lines):
-        parsed = parse_item(line)
-        if not parsed:
-            continue
+    idxs = find_all_item_lines(lines, item_id)
+    if not idxs:
+        raise SystemExit(f"Item {item_id} not found")
+
+    # Current values come from the primary (first) line; shadows are copies.
+    src = parse_item(lines[idxs[0]])
+    assert src is not None  # indices come from parsed item lines
+    cur_deps = parse_id_list(_get_tag_value(src[5], TAG_DEPS_RE) or "")
+    cur_rel = parse_id_list(_get_tag_value(src[5], TAG_REL_RE) or "")
+
+    def apply(op: Optional[str], cur: List[str], arg: Optional[str]) -> List[str]:
+        if not op:
+            return cur
+        op = op.lower()
+        if op == "clear":
+            return []
+        if op == "set":
+            return parse_id_list(arg or "")
+        if op == "add":
+            return sort_ids(unique_preserve(cur + parse_id_list(arg or "")))
+        if op == "rm":
+            rm = set(parse_id_list(arg or ""))
+            return [x for x in cur if x not in rm]
+        raise SystemExit(f"Unknown link op '{op}' (use add|rm|set|clear)")
+
+    new_deps = apply(deps_op, cur_deps, deps_list)
+    new_rel = apply(rel_op, cur_rel, rel_list)
+
+    for i in idxs:  # primary + shadow copies stay in sync
+        parsed = parse_item(lines[i])
+        assert parsed is not None
         indent, box, iid, prio, status, rest = parsed
-        if iid != item_id:
-            continue
-
-        # current
-        cur_deps = parse_id_list(_get_tag_value(rest, TAG_DEPS_RE) or "")
-        cur_rel = parse_id_list(_get_tag_value(rest, TAG_REL_RE) or "")
-
-        def apply(op: Optional[str], cur: List[str], arg: Optional[str]) -> List[str]:
-            if not op:
-                return cur
-            op = op.lower()
-            if op == "clear":
-                return []
-            if op == "set":
-                return parse_id_list(arg or "")
-            if op == "add":
-                return sort_ids(unique_preserve(cur + parse_id_list(arg or "")))
-            if op == "rm":
-                rm = set(parse_id_list(arg or ""))
-                return [x for x in cur if x not in rm]
-            raise SystemExit(f"Unknown link op '{op}' (use add|rm|set|clear)")
-
-        new_deps = apply(deps_op, cur_deps, deps_list)
-        new_rel = apply(rel_op, cur_rel, rel_list)
-
         new_rest = rest
         if deps_op:
             new_rest = _set_or_remove_tag(new_rest, "deps", new_deps)
         if rel_op:
             new_rest = _set_or_remove_tag(new_rest, "rel", new_rel)
-
         lines[i] = build_item_line(indent, iid, prio, status, new_rest)
-        save(lines)
-        print(f"Linked {item_id}")
-        return
 
-    raise SystemExit(f"Item {item_id} not found")
+    save(lines)
+    print(f"Linked {item_id}")
 
 
 def set_tag(item_id: str, tag: str, value: str) -> None:
-    """Set a single-value tag on an item."""
+    """Set a single-value tag on an item (primary line and any shadow copies)."""
     item_id = normalize_id(item_id)
     lines = load()
 
-    for i, line in iter_content_lines(lines):
-        parsed = parse_item(line)
-        if not parsed:
-            continue
+    idxs = find_all_item_lines(lines, item_id)
+    if not idxs:
+        raise SystemExit(f"Item {item_id} not found")
+
+    for i in idxs:  # primary + shadow copies stay in sync (#17)
+        parsed = parse_item(lines[i])
+        assert parsed is not None
         indent, box, iid, prio, status, rest = parsed
-        if iid != item_id:
-            continue
+        lines[i] = build_item_line(indent, iid, prio, status, _set_single_tag(rest, tag, value))
 
-        new_rest = _set_single_tag(rest, tag, value)
-        lines[i] = build_item_line(indent, iid, prio, status, new_rest)
-        save(lines)
-        print(f"Set @{tag}={value} on {item_id}")
-        return
-
-    raise SystemExit(f"Item {item_id} not found")
+    save(lines)
+    print(f"Set @{tag}={value} on {item_id}")
 
 
 # -------------------------
@@ -2103,18 +2118,15 @@ def cmd_update(item_id: str, *, status: Optional[str] = None, prio: Optional[str
             if parsed and parsed[2] != item_id and parsed[4] == "doing":
                 lines[i] = normalize_item_line(line, status="todo")
 
-    for i, line in iter_content_lines(lines):
-        parsed = parse_item(line)
-        if not parsed:
-            continue
-        if parsed[2] != item_id:
-            continue
-        lines[i] = normalize_item_line(line, status=status, prio=prio)
-        save(lines)
-        print(f"Updated {item_id}")
-        return
+    idxs = find_all_item_lines(lines, item_id)
+    if not idxs:
+        raise SystemExit(f"Item {item_id} not found")
 
-    raise SystemExit(f"Item {item_id} not found")
+    for i in idxs:  # primary + shadow copies stay in sync (#17)
+        lines[i] = normalize_item_line(lines[i], status=status, prio=prio)
+
+    save(lines)
+    print(f"Updated {item_id}")
 
 
 def cmd_new(args: List[str]):

@@ -1425,6 +1425,68 @@ out=$(run validate)
 assert_contains "Validate still passes with prose look-alikes" "$out" "OK"
 
 # ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 49: edits land on the primary line, shadows stay in sync (issue #17) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+cat >> TASKS.md << 'MS'
+
+# Milestones
+
+- M1  alias=alpha  status=active   North star
+MS
+
+# Feature in Backlog; starting its task creates a @shadow in Now — which
+# PRECEDES the primary in file order (Now section comes first).
+run new feature "Shadowed feature" --prio P1 --section Backlog > /dev/null
+run new task "Child task" --prio P0 --under F-0001 > /dev/null
+run start T-0001 > /dev/null
+
+out=$(cat TASKS.md)
+assert_contains "Shadow exists (precondition)" "$out" "@shadow"
+
+run set F-0001 --milestone m1 > /dev/null
+
+# Anchor greps on the real title — the init template's # Meta code block also
+# contains a literal (F-0001) example line that must not pollute assertions.
+primary=$(grep "(F-0001).*Shadowed feature" TASKS.md | grep -v "@shadow")
+shadow=$(grep "(F-0001).*Shadowed feature" TASKS.md | grep "@shadow")
+assert_contains "Primary (canonical) line carries the milestone" "$primary" "@milestone=m1"
+assert_contains "Shadow copy stays in sync" "$shadow" "@milestone=m1"
+
+out=$(run list --milestone default)
+assert_not_contains "Feature no longer leaks into the default bucket" "$out" "F-0001"
+
+out=$(run milestone --table)
+if echo "$out" | grep -F "M1 (alpha)" | grep -qF "F-0001"; then
+    PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: table puts F-0001 on the M1 row"
+else
+    FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  FAIL: F-0001 missing from M1 table row"
+    echo -e "  ${RED}FAIL${NC}: table puts F-0001 on the M1 row"
+fi
+if echo "$out" | grep -E "^default" | grep -qF "F-0001"; then
+    FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  FAIL: F-0001 still on the default table row"
+    echo -e "  ${RED}FAIL${NC}: F-0001 not on the default table row"
+else
+    PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: F-0001 not on the default table row"
+fi
+
+# Same first-match bug class: prio and link on a shadowed feature.
+run prio F-0001 P0 > /dev/null
+primary=$(grep "(F-0001).*Shadowed feature" TASKS.md | grep -v "@shadow")
+shadow=$(grep "(F-0001).*Shadowed feature" TASKS.md | grep "@shadow")
+assert_contains "prio updates the primary line" "$primary" "[P0]"
+assert_contains "prio keeps the shadow in sync" "$shadow" "[P0]"
+
+run link F-0001 --rel add T-0001 > /dev/null
+primary=$(grep "(F-0001).*Shadowed feature" TASKS.md | grep -v "@shadow")
+assert_contains "link edits the primary line" "$primary" "@rel=T-0001"
+
+out=$(run validate)
+assert_contains "Validate passes after synced edits" "$out" "OK"
+
+# ============================================================
 # Summary
 # ============================================================
 echo -e "\n${YELLOW}======================================${NC}"
