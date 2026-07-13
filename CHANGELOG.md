@@ -4,6 +4,19 @@ All notable changes to `tasks`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [1.3.0] — 2026-07-13
+
+### Added
+- `renumber OLD (NEW | --next) [--refs]` — reassign an item's ID without
+  hand-editing (#12). Renames the primary line and all `@shadow` copies,
+  repoints every `@deps=`/`@rel=` list containing the old ID (tag region only —
+  prose mentions stay untouched, per the #9 rules), and renames the `## <OLD>`
+  header in `# Notes`. Refuses an occupied target (use `--next` for the next
+  free ID of the same kind), cross-kind moves, and no-ops. `--refs` prints a
+  read-only report of remaining mentions across git-tracked files (canonical
+  and short forms) — repointing those is deliberately left to the operator.
+  Motivated by the multi-branch ID-collision incident; pairs with #13/#14.
+
 ## [1.2.0] — 2026-07-13
 
 ### Added
