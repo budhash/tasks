@@ -30,8 +30,11 @@
 
 ## What just happened (2026-06-21 → 2026-07-15)
 
-Six releases, each driven by real usage in consumer repos; every design decision and
-its *why* is in `LEARNINGS.md` and `docs/superpowers/specs/`:
+Six releases, each driven by real usage in consumer repos. The *why* behind the
+decisions is in `LEARNINGS.md`; the renumber and id-allocation rounds also have full
+design docs in `docs/superpowers/specs/`. (The milestone feature's original spec
+lived off-repo in taxjot and did not travel — its surviving specification is the
+module docstring + `schema.md`, and its rationale the v1.1.x LEARNINGS entries.)
 v1.1.0 milestones → v1.1.1 trailing-tag-region parsing (#9) → v1.1.2 shadow-sync
 field edits (#17) → v1.2.0 `set --title` (#18) → v1.3.0 `renumber` (#12) →
 v1.4.0 `new --id`/`--base` (#13). The through-line: a three-way ID collision

@@ -125,5 +125,8 @@ Initial release.
 - `--prio` and `--priority` accepted interchangeably on `new`/`list`.
 - PostToolUse `tasks-md-guard.sh` hook to nudge edits through the CLI.
 - 155-scenario end-to-end test suite; CI across Python 3.8–3.12.
+  *(Editor's note, 2026-07-15: "155" counted assertions, not scenarios — the
+  v1.0.0 suite had 30 scenarios / 155 assertions. The suite has only grown
+  since; `make test` prints the live assertion count.)*
 - Docs: install + task-lifecycle walkthrough, a populated `examples/TASKS.md`,
   and `CONTRIBUTING.md`. Consistent `./tools/tasks.py` invocation throughout.

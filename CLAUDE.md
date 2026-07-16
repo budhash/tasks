@@ -35,7 +35,7 @@ exists — no install, no PATH, no network.
 | Path | What |
 |---|---|
 | `tasks.py` | The engine — commands, parser, validator, `version`/`selfupdate`. |
-| `tests/test_tasks_e2e.sh` | The conformance gate (54 scenarios / 298 assertions as of v1.4.0 — `make test` prints the live count; don't trust doc numbers over the runner). |
+| `tests/test_tasks_e2e.sh` | The conformance gate (54 scenarios / 298 assertions as of v1.4.0 — `make test` prints the live assertion count; don't trust doc numbers over the runner). |
 | `hooks/tasks-md-guard.sh` | Optional PostToolUse hook nudging edits through the CLI. |
 | `schema.md` | `TASKS.md` format quick-reference (full spec = the docstring). |
 | `docs/superpowers/specs/` | Committed design docs (`YYYY-MM-DD-<topic>-design.md`) for larger features — the decisions *and their why*, written before implementation. ("superpowers" = the brainstorm/TDD workflow tooling used in AI sessions; the docs are plain markdown.) |
@@ -77,7 +77,9 @@ it is deliberately conservative. Preserve all of these:
 1. Bump `__version__` in `tasks.py` and add a `CHANGELOG.md` entry.
 2. `make check` (green), commit.
 3. Tag and push: `git tag -a vX.Y.Z -m "tasks vX.Y.Z" && git push origin vX.Y.Z`
-   (a tag push is the release; optionally `gh release create`).
+   (a tag push is the release).
+4. Create the GitHub Release: `gh release create vX.Y.Z` with notes — standard
+   practice since v1.1.0 (every release has one).
 
 Vendored copies on older versions pick up the new release via
 `tasks selfupdate` (which fetches `tasks.py` from `main`'s raw URL). Keep the

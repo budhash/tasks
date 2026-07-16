@@ -28,7 +28,14 @@ Example:
   - [x] (T-0002) [P0] [done] Another subtask @done=2025-01-01
 ```
 
-Tags: `@deps=` `@rel=` `@branch=` `@pr=` `@issue=` `@tags=` `@effort=` `@system=` `@done=`
+Tags: `@deps=` `@rel=` `@branch=` `@pr=` `@issue=` `@tags=` `@effort=` `@system=` `@milestone=` `@done=`
+
+---
+
+# Milestones
+
+- M1  alias=alpha  status=active   Auth goes live
+- M2  alias=beta   status=planned  Notifications rollout
 
 ---
 
@@ -36,14 +43,14 @@ Tags: `@deps=` `@rel=` `@branch=` `@pr=` `@issue=` `@tags=` `@effort=` `@system=
 
 ## Now
 
-- [ ] (F-0001) [P0] [todo] Auth MVP
+- [ ] (F-0001) [P0] [todo] Auth MVP @milestone=m1
   - [x] (T-0001) [P0] [done] Define User schema @effort=2h @done=2026-06-21
   - [ ] (T-0002) [P1] [doing] Token validation @effort=4h @deps=T-0001
   - [ ] (T-0003) [P1] [todo] Login endpoint @deps=T-0002
 ## Backlog
 
 - [ ] (F-0002) [P2] [todo] Notifications
-  - [ ] (T-0004) [P2] [todo] Email provider spike @tags=research
+  - [ ] (T-0004) [P2] [todo] Email provider spike @tags=research @milestone=beta
 ## Skipped
 
 ---
