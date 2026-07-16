@@ -98,7 +98,8 @@ Vendored copies on older versions pick up the new release via
   commit to `main` directly.
 - Number references: in `CHANGELOG.md`, `LEARNINGS.md`, and spec prose, `#N`
   cites a **GitHub issue**; the `(#N)` suffix on a squash-merge commit subject
-  is the **PR** number. They are different sequences on the same tracker.
+  is the **PR** number. Issues and PRs share one number sequence on GitHub, so
+  a given `#N` is exactly one of the two — the tracker resolves it either way.
 - New behavior is developed test-first: add the e2e scenario, watch it fail for
   the right reason, then implement. Larger features get a design doc in
   `docs/superpowers/specs/` committed with the same PR.

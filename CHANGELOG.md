@@ -4,6 +4,25 @@ All notable changes to `tasks`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [1.4.1] — 2026-07-16
+
+Docs-only release; no behavior changes. Marks the repo "migration-ready": three
+blind cold-clone audits confirmed a fresh session can resume from the repo alone.
+
+### Added
+- `MEMORY.md` — successor briefing (resume point, off-repo context, bootstrap),
+  ranked below `CLAUDE.md`; referenced from the fresh-session read order.
+- Docstring/`schema.md`/README: explicit note that tasks do **not** inherit
+  their parent feature's `@milestone=` (rollup counts task tags only).
+
+### Fixed
+- Stale "155 scenarios" claims (actual: 54 scenarios / 298 assertions as of
+  v1.4.0) + an editor's note on the mislabeled v1.0.0 entry.
+- Layout tables now list `LEARNINGS.md`, `MEMORY.md`, `docs/superpowers/specs/`.
+- `examples/TASKS.md` now showcases milestones (registry + `@milestone=` tags).
+- `CONTRIBUTING.md`/`CLAUDE.md` release + branching process aligned with actual
+  practice (squash-merge only; `gh release create` every release).
+
 ## [1.4.0] — 2026-07-15
 
 ### Added

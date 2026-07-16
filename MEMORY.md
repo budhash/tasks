@@ -8,8 +8,10 @@
 
 ## Now / next (the resume point)
 
-- **Nothing is in flight.** `main` is the complete, released state (v1.4.0,
-  2026-07-15). No open PRs; the only branch is `main`.
+- **Nothing is in flight.** `main` is the complete state; no open PRs; the only
+  branch is `main`. v1.4.1 (docs-only, migration-readiness) is committed on
+  `main` — if no `v1.4.1` tag exists yet, tagging it is pending the owner's
+  confirmation (a tag push triggers the release; see CLAUDE.md → Releasing).
 - **Next up, if told "continue where we left off": issue #14 — `validate --refs`**,
   a reference-integrity check. Agreed shape (triage comment on the issue): v1 detects
   *dangling* refs only (`@deps=`/`@rel=`/`## <ID>` notes header pointing at an ID
@@ -40,7 +42,9 @@ field edits (#17) → v1.2.0 `set --title` (#18) → v1.3.0 `renumber` (#12) →
 v1.4.0 `new --id`/`--base` (#13). The through-line: a three-way ID collision
 (`T-2006`, three parallel branches) in a consumer repo produced the
 fix/prevent/detect triad — #12 shipped (fix), #13 shipped (prevent), #14 open
-(detect).
+(detect). Afterwards (2026-07-15/16), three blind cold-clone audits drove the
+migration-readiness docs work (v1.4.1): MEMORY.md, corrected doc claims, and
+issue #25 (found by the audit).
 
 ## Off-repo context a fresh machine won't have
 

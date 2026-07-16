@@ -160,8 +160,14 @@ EOF
 ./tools/tasks.py next --milestone m1  # next actionable task within M1
 ```
 
+Assignment is per-item: a task does **not** inherit its parent feature's
+milestone. The `milestone` rollup counts task tags only (untagged tasks stay in
+the sentinel bucket) — tag tasks individually, or use `new … --milestone`, if
+you want them counted under the target.
+
 `milestone --table` gives the delivery-oriented view — each milestone, the
-features assigned to it, and the milestone's status:
+features assigned to it (directly or via their tagged tasks), and the
+milestone's status:
 
 ```
 MILESTONE       FEATURES              STATUS

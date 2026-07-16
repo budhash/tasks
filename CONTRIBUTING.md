@@ -30,13 +30,16 @@ make smoke     # quick functional smoke test
 
 ## Pull requests
 
+- All changes land via feature branch → PR → CI green → squash-merge; nothing
+  is committed to `main` directly.
 - One concern per PR; clear, imperative commit messages.
 - `make check` green, and the change documented in `CHANGELOG.md`.
 
 ## Releasing (maintainers)
 
 Bump `__version__` + `CHANGELOG.md`, then `git tag -a vX.Y.Z -m "tasks vX.Y.Z"
-&& git push origin vX.Y.Z`.
+&& git push origin vX.Y.Z`, then `gh release create vX.Y.Z` with notes (every
+release since v1.1.0 has one). Full process notes: `CLAUDE.md` → Releasing.
 
 ## Known cleanup
 
