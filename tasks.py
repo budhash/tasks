@@ -90,7 +90,10 @@ strictly optional and orthogonal to @system=/@tags=: a file with no milestone
 data behaves exactly as before, and a task without the tag resolves to an
 implicit sentinel bucket named "default" (configurable via the
 TASKS_MILESTONE_SENTINEL env var; it must not look like an M<n> id). The
-sentinel is never written into task lines.
+sentinel is never written into task lines. Assignment is per-item: a task does
+NOT inherit its parent feature's milestone — the `milestone` rollup counts task
+tags only (untagged tasks stay in the sentinel bucket), while `milestone
+--table` attributes a feature directly or via its tagged tasks.
 
 An optional "# Milestones" registry (its own H1 section) maps ids to aliases,
 statuses, and titles. When present it powers alias resolution (@milestone=alpha
@@ -198,7 +201,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Iterator
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 # Canonical source for `selfupdate` — the published raw URL. `selfupdate`
 # overwrites this very script with the fetched content, so a NON-default source

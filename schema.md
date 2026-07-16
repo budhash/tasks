@@ -71,7 +71,10 @@ A task may carry one `@milestone=<id-or-alias>` tag. It is fully optional and
 orthogonal to `@system=`/`@tags=`: files with no milestone data behave exactly
 as before, and a task without the tag falls into an implicit sentinel bucket
 named `default` (override via `TASKS_MILESTONE_SENTINEL`; it must not look like
-an `M<n>` id). The sentinel is never written into task lines.
+an `M<n>` id). The sentinel is never written into task lines. Assignment is
+per-item: a task does **not** inherit its parent feature's milestone — the
+`milestone` rollup counts task tags only, while `--table` attributes a feature
+directly or via its tagged tasks.
 
 An optional `# Milestones` registry (its own H1 section) maps ids → alias →
 status → title, and powers alias resolution + rollups:

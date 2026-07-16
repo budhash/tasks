@@ -3,6 +3,28 @@
 Insights, gotchas, and decisions worth remembering — newest first. For *what*
 changed see `CHANGELOG.md`; this file records *why* and what it taught us.
 
+## 2026-07-16 — v1.4.1 (migration readiness: blind-dogfood audits)
+
+- **Blind readers find what self-review can't.** Preparing a machine move, we ran
+  three rounds of "fresh agent, cold clone, zero context, answer a resume
+  questionnaire from the repo alone". Round 1: stale claims ("155 scenarios"),
+  lagging layout tables/roadmap, and no in-repo resume point. Round 2: an
+  overclaiming doc sentence, a flagship example file that predated the flagship
+  feature, and a real bug (#25: `validate` swallows unknown argv). Round 3: only
+  minor phrasing — converged. Each reader must be blind to the previous reports,
+  or later rounds just re-confirm earlier ones.
+- **The highest-value probe is "continue where we left off".** It cleanly
+  separates "nothing is unmerged" (derivable from git) from "what would you do
+  next" (not derivable unless written down). `MEMORY.md` now pins the resume
+  point and is maintained in the same PR as any release or roadmap change.
+- **Hardcoded counts in prose always rot.** Pin them to a version ("as of
+  v1.4.0") and point at the runner for the live number. And when a frozen
+  history entry (CHANGELOG) is misleading, append a dated editor's note — never
+  rewrite the entry.
+- **Example files are docs and rot like docs.** `examples/TASKS.md` was billed
+  as "fully populated" but had no milestone content two releases after
+  milestones shipped. When a feature ships, grep the examples too.
+
 ## 2026-07-15 — v1.4.0 (collision-resistant allocation)
 
 - **Fail closed when the flag *is* the safety.** `new --base <ref>` exists to
