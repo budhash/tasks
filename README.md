@@ -214,7 +214,7 @@ overwrites the running script, it is deliberately conservative:
 | `tasks.py` | The engine — task commands, `validate`, `version`, `selfupdate`. |
 | `examples/TASKS.md` | A populated sample file. |
 | `hooks/tasks-md-guard.sh` | Optional PostToolUse hook nudging edits through the CLI. |
-| `tests/test_tasks_e2e.sh` | Behavioral conformance suite (54 scenarios / 298 assertions as of v1.4.0; `make test` prints the live count). |
+| `tests/test_tasks_e2e.sh` | Behavioral conformance suite (54 scenarios / 298 assertions as of v1.4.0; `make test` prints the live assertion count). |
 | `schema.md` | `TASKS.md` format quick-reference (full spec in `tasks.py help`). |
 | `docs/superpowers/specs/` | Committed design docs for the larger features (the *why* behind them). |
 | `LEARNINGS.md` · `MEMORY.md` | Decision/insight ledger · maintainer session-to-session state. |
