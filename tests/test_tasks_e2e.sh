@@ -1631,6 +1631,72 @@ else
 fi
 
 # ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 53: new --id — explicit ID allocation + guards (issue #13) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+out=$(run new feature "Explicit feature" --id F-100 --section Now)
+assert_contains "Explicit feature id is normalized and used" "$out" "Created F-0100"
+out=$(run new task "Explicit task" --id T-42 --under F-0100)
+assert_contains "Explicit task id is used" "$out" "Created T-0042"
+out=$(run show T-0042)
+assert_contains "Item lives at the explicit id" "$out" "Explicit task"
+
+# Auto-allocation continues from the explicit high-water mark.
+out=$(run new task "Auto after explicit" --under F-0100)
+assert_contains "Auto id continues past explicit ids" "$out" "Created T-0043"
+
+# Guards.
+out=$(run new task "Dup" --id T-42 2>&1 || true)
+assert_contains "Refuses a taken --id" "$out" "already exists"
+out=$(run new task "Wrong kind" --id F-7 2>&1 || true)
+assert_contains "Refuses cross-kind --id" "$out" "kind must match"
+out=$(run new task "Bad id" --id banana 2>&1 || true)
+assert_contains "Refuses an invalid --id" "$out" "Invalid id"
+
+out=$(run validate)
+assert_contains "Validate passes after explicit ids" "$out" "OK"
+
+# ============================================================
+echo -e "\n${YELLOW}=== SCENARIO 54: new --base — ref-aware allocation, fail closed (issue #13) ===${NC}"
+# ============================================================
+setup_test_dir
+fresh_init > /dev/null
+
+# Build the incident shape: the ref (HEAD) knows tasks the local file doesn't.
+run new feature "Alloc home" --prio P1 > /dev/null
+run new task "First" --under F-0001 > /dev/null           # T-0001
+cp TASKS.md TASKS.fork                                    # branch forks here
+run new task "Second" --under F-0001 > /dev/null          # T-0002
+run new task "Third" --under F-0001 > /dev/null           # T-0003
+git init -q .
+git add TASKS.md
+git -c user.name=e2e -c user.email=e2e@test commit -q -m "base with T-0003"
+mv TASKS.fork TASKS.md                                    # local max back to T-0001
+
+# Local-only allocation would hand out T-0002 and collide with the ref.
+out=$(run new task "Base-aware" --under F-0001 --base HEAD)
+assert_contains "--base allocates past the ref's max" "$out" "Created T-0004"
+
+# --id + --base: refuse an id that is free locally but taken at the ref.
+out=$(run new task "Ref dup" --id T-2 --base HEAD 2>&1 || true)
+assert_contains "Refuses an --id taken at the base ref" "$out" "already exists"
+
+# Fail closed: a bad ref is an error, not a silent local-only fallback.
+out=$(run new task "Bad ref" --base no-such-ref 2>&1 || true)
+assert_contains "Refuses an unresolvable ref" "$out" "cannot read"
+
+out=$(run validate)
+assert_contains "Validate passes after --base allocation" "$out" "OK"
+
+# Fail closed outside a git repo entirely.
+setup_test_dir
+fresh_init > /dev/null
+out=$(run new task "No repo" --base HEAD 2>&1 || true)
+assert_contains "Refuses --base outside a git repository" "$out" "not a git repository"
+
+# ============================================================
 # Summary
 # ============================================================
 echo -e "\n${YELLOW}======================================${NC}"

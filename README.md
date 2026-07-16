@@ -92,7 +92,7 @@ Highlights:
 | Command | What |
 |---|---|
 | `init` | Create a starter `TASKS.md` |
-| `new feature\|task "Title" [...]` | Create an item (`--prio`/`--priority`, `--under ID`, `--section`, `--effort`, `--tags`, `--deps`, `--status`) |
+| `new feature\|task "Title" [...]` | Create an item (`--prio`/`--priority`, `--under ID`, `--section`, `--effort`, `--tags`, `--deps`, `--status`; `--id T-42` for an explicit ID — refused if taken; `--base REF` to also allocate past `TASKS.md` at a git ref) |
 | `start \| done \| skip \| defer \| reopen ID` | Status transitions (`start` enforces a single active task) |
 | `tree` / `list [filters]` / `show ID [--full]` | Views |
 | `next` | Next actionable task (highest prio, unblocked, in `Now`) |
@@ -122,6 +122,10 @@ Highlights:
   and anything untagged falls into an implicit `default` bucket. An optional
   `# Milestones` registry unlocks aliases (`@milestone=alpha` ≡ `@milestone=m1`),
   statuses, and titles. See the [milestone workflow](#milestones) below.
+- **Parallel branches.** Two branches that each run `new` allocate the same
+  next ID and collide at merge. Prevent it with `--base`
+  (`new task "..." --base origin/main` allocates past `main`'s max too) or
+  disjoint explicit `--id` ranges; clean up any survivor with `renumber`.
 - **Commit your `TASKS.md`.** It's meant to be versioned with your code.
   (This repo's `.gitignore` ignores a root `TASKS.md` only because it's the
   tool's own test scratch — that does not apply to your project.)
