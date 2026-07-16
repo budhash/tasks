@@ -134,7 +134,8 @@ Commands
   next [--milestone ID]              Show next actionable task (highest prio, unblocked, in Now)
   new (feature|task) "Title" [...]   Create item (--prio|--priority, --status, --under ID,
                                        --section NAME, --effort HOURS, --tags TAG1,TAG2, --deps ID1,ID2,
-                                       --milestone ID)
+                                       --milestone ID, --id T-42 explicit ID (refused if taken),
+                                       --base REF allocate past TASKS.md at a git ref too)
   mv ID (--section NAME|--under ID)  Move item subtree (auto-sorts Now by priority)
   start|done|skip|defer ID           Status transitions (start enforces single WIP)
   reopen ID                          Reset terminal status (done/skipped/deferred) back to todo
@@ -178,6 +179,8 @@ Examples
   ./tools/tasks.py tree                        # Merged Feature display with section labels
   ./tools/tasks.py list --system sprint-1 --status todo
   ./tools/tasks.py new task "Estimator" --under F-1 --milestone m1
+  ./tools/tasks.py new task "Parallel work" --id T-42        # explicit ID; refused if taken
+  ./tools/tasks.py new task "Branch work" --base origin/main # allocate past the ref's max too
   ./tools/tasks.py set T-7 --milestone alpha    # stored as-is; shows as M1 on read
   ./tools/tasks.py list --milestone m1          # alias-resolved; 'default' = unassigned
   ./tools/tasks.py milestone                    # per-milestone rollup
@@ -195,7 +198,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Iterator
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 # Canonical source for `selfupdate` — the published raw URL. `selfupdate`
 # overwrites this very script with the fetched content, so a NON-default source
@@ -2154,9 +2157,32 @@ def cmd_update(item_id: str, *, status: Optional[str] = None, prio: Optional[str
     print(f"Updated {item_id}")
 
 
+def _lines_from_git_ref(ref: str) -> List[str]:
+    """Return the tasks file's lines as of a git ref, for `new --base`.
+
+    Fails closed (SystemExit) on any git problem — a silent fallback to
+    local-only allocation would quietly reintroduce the collisions --base
+    exists to prevent (see the #13 design doc).
+    """
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        raise SystemExit("--base: not a git repository (or git unavailable)")
+    rel = os.path.relpath(os.path.abspath(TASK_FILE), top).replace(os.sep, "/")
+    if rel.startswith(".."):
+        raise SystemExit(f"--base: {TASK_FILE} is outside this git repository")
+    show = subprocess.run(["git", "show", f"{ref}:{rel}"], capture_output=True, text=True)
+    if show.returncode != 0:
+        detail = (show.stderr or "").strip().splitlines()
+        suffix = f" ({detail[0]})" if detail else ""
+        raise SystemExit(f"--base: cannot read {rel} at '{ref}'{suffix}")
+    return show.stdout.splitlines(keepends=True)
+
+
 def cmd_new(args: List[str]):
     if len(args) < 2:
-        raise SystemExit('usage: new (feature|task) "Title" [--prio P1] [--status todo] [--under ID | --section Backlog] [--effort 4h] [--tags x,y] [--deps T-1,T-2]')
+        raise SystemExit('usage: new (feature|task) "Title" [--prio P1] [--status todo] [--under ID | --section Backlog] [--effort 4h] [--tags x,y] [--deps T-1,T-2] [--id T-42] [--base REF]')
 
     kind_word = args[0].lower()
     kind = "F" if kind_word == "feature" else ("T" if kind_word == "task" else None)
@@ -2172,6 +2198,8 @@ def cmd_new(args: List[str]):
     tags = None
     deps = None
     milestone = None
+    explicit_id = None
+    base_ref = None
 
     i = 2
     while i < len(args):
@@ -2215,6 +2243,16 @@ def cmd_new(args: List[str]):
                 raise SystemExit("--milestone requires an id or alias (e.g., m1, alpha)")
             milestone = args[i + 1]
             i += 2
+        elif args[i] == "--id":
+            if i + 1 >= len(args):
+                raise SystemExit("--id requires an item ID (e.g., T-42)")
+            explicit_id = normalize_id(args[i + 1])
+            i += 2
+        elif args[i] == "--base":
+            if i + 1 >= len(args):
+                raise SystemExit("--base requires a git ref (e.g., origin/main)")
+            base_ref = args[i + 1]
+            i += 2
         else:
             raise SystemExit(f"Unknown arg: {args[i]}")
 
@@ -2224,7 +2262,22 @@ def cmd_new(args: List[str]):
         raise SystemExit(f"Invalid priority '{prio}'")
 
     lines = load()
-    iid = next_id(lines, kind)
+    base_lines = _lines_from_git_ref(base_ref) if base_ref else None
+
+    if explicit_id is not None:
+        if explicit_id.split("-")[0] != kind:
+            raise SystemExit(f"Cannot create a {kind_word} with id {explicit_id}: kind must match ({kind}-).")
+        if find_all_item_lines(lines, explicit_id):
+            raise SystemExit(f"{explicit_id} already exists; pick a free id or omit --id for the next free one.")
+        if base_lines is not None and find_all_item_lines(base_lines, explicit_id):
+            raise SystemExit(f"{explicit_id} already exists at '{base_ref}'; pick a free id.")
+        iid = explicit_id
+    else:
+        iid = next_id(lines, kind)
+        if base_lines is not None:
+            base_next = next_id(base_lines, kind)
+            if int(base_next.split("-")[1]) > int(iid.split("-")[1]):
+                iid = base_next
 
     box = "x" if status == "done" else " "
     suffix = f" @done={date.today()}" if status == "done" else ""

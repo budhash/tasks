@@ -4,6 +4,23 @@ All notable changes to `tasks`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [semantic versioning](https://semver.org/).
 
+## [1.4.0] — 2026-07-15
+
+### Added
+- Collision-resistant ID allocation on `new` (#13) — the prevention leg of the
+  multi-branch ID-collision incident (`renumber` in 1.3.0 is the cleanup):
+  - `new … --id T-42` — create with an explicit ID (short forms normalized).
+    Refused if the ID is already taken or the kind doesn't match; no `--force`
+    (a forced duplicate ID is file corruption, not a feature).
+  - `new … --base <git-ref>` — auto-allocate the next ID considering *both*
+    the local file and `TASKS.md` at the ref (`max(local, base) + 1`), so a
+    branch forked from `main` can't re-issue IDs `main` already handed out.
+    Fails closed on any git problem rather than silently falling back to
+    local-only allocation. Combined with `--id`, the explicit ID must be free
+    at the ref too.
+  - `reserve N` (persisted ranges) stays deferred — it would add a new concept
+    to the file format.
+
 ## [1.3.0] — 2026-07-13
 
 ### Added

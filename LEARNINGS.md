@@ -3,6 +3,24 @@
 Insights, gotchas, and decisions worth remembering — newest first. For *what*
 changed see `CHANGELOG.md`; this file records *why* and what it taught us.
 
+## 2026-07-15 — v1.4.0 (collision-resistant allocation)
+
+- **Fail closed when the flag *is* the safety.** `new --base <ref>` exists to
+  prevent cross-branch ID collisions; if git fails, falling back to local-only
+  allocation would silently reintroduce exactly what the user opted into
+  preventing — so it errors instead. Contrast with `renumber --refs`, which
+  degrades gracefully outside a repo: that one is a best-effort *report*, not a
+  correctness guarantee. The rule: graceful degradation is for observability
+  features, hard failure is for safety features.
+- **A `--force` sketched in triage isn't a commitment.** The #13 triage note
+  said "refuse if taken unless `--force`", but forcing a duplicate ID is file
+  corruption in every case — there is no valid use. Dropped it and recorded
+  the deviation in the design doc rather than shipping a footgun for symmetry.
+- **Test needles must not look like flags.** `assert_contains … "--base"` broke
+  because the harness greps for the needle and grep ate it as an option.
+  Assert on message *words* ("cannot read"), not flag-shaped substrings — or
+  the assertion tests grep's argv parsing instead of the CLI.
+
 ## 2026-07-13 — v1.3.0 (`renumber`)
 
 - **Mutate structure, report prose.** The renumber design's key call (made
